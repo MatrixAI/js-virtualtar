@@ -1,10 +1,32 @@
-var chownr = require('chownr')
-var tar = require('tar-stream')
-var pump = require('pump')
-var mkdirp = require('mkdirp')
-var fs = require('fs')
-var path = require('path')
-var os = require('os')
+import pathNode from 'path';
+import tar from 'tar-stream';
+import vfs from 'virtualfs';
+
+// prefer posix join
+const pathJoin = (pathNode.posix) ? pathNode.posix.join : pathNode.join;
+
+
+// we already have mkdirp
+// no need for it
+
+
+// the default is more improtant there
+
+
+
+
+// we need to implement chownr into the virtualfs
+// it's recursive
+// so we keep going down
+
+
+// var chownr = require('chownr')
+// var tar = require('tar-stream')
+// var pump = require('pump')
+// var mkdirp = require('mkdirp')
+// var path = require('path')
+// var os = require('os')
+
 
 var win32 = os.platform() === 'win32'
 

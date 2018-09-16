@@ -1,10 +1,8 @@
 {
-  "name": "tar-fs",
+  "name": "virtualtar",
   "version": "1.16.3",
-  "description": "filesystem bindings for tar-stream",
+  "description": "virtualfs bindings for tar-stream",
   "dependencies": {
-    "chownr": "^1.0.1",
-    "mkdirp": "^0.5.1",
     "pump": "^1.0.0",
     "tar-stream": "^1.1.2"
   },
