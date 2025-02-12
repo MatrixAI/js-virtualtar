@@ -12,8 +12,13 @@ class ErrorVirtualTarInvalidFileName<T> extends ErrorVirtualTar<T> {
   static description = 'The provided file name is invalid';
 }
 
+class ErrorVirtualTarInvalidHeader<T> extends ErrorVirtualTar<T> {
+  static description = 'The header has invalid data';
+}
+
 export {
   ErrorVirtualTar,
   ErrorVirtualTarUndefinedBehaviour,
   ErrorVirtualTarInvalidFileName,
+  ErrorVirtualTarInvalidHeader,
 };

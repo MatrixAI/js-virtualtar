@@ -1,17 +1,49 @@
 import type { Stats } from 'fs';
 
-const TarTypes = {
+const EntryTypes = {
   FILE: '0',
   DIRECTORY: '5',
 } as const;
 
-type TarType = (typeof TarTypes)[keyof typeof TarTypes];
+type EntryType = (typeof EntryTypes)[keyof typeof EntryTypes];
 
 type DirectoryContent = {
   path: string;
   stat: Stats;
-  type: TarType;
+  type: EntryType;
 };
 
-export type { TarType, DirectoryContent };
-export { TarTypes };
+type HeaderOptions = {
+  fileNameEncoding: 'ascii' | 'utf8';
+  blockSize: number;
+};
+
+// An actual type for `fs` doesn't exist
+type ReadFileOptions = {
+  fs: any;
+  blockSize: number;
+};
+
+// An actual type for `fs` doesn't exist
+type WalkDirectoryOptions = {
+  fs: any;
+  blockSize: number;
+};
+
+// An actual type for `fs` doesn't exist
+type TarOptions = {
+  fs: any;
+  blockSize: number;
+  fileNameEncoding: 'ascii' | 'utf8';
+};
+
+export type {
+  EntryType,
+  DirectoryContent,
+  HeaderOptions,
+  ReadFileOptions,
+  WalkDirectoryOptions,
+  TarOptions,
+};
+
+export { EntryTypes };
