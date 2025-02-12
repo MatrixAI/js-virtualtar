@@ -1,5 +1,17 @@
-// 0 = FILE
-// 5 = DIRECTORY
-type TarType = '0' | '5';
+import type { Stats } from 'fs';
 
-export { TarType };
+const TarTypes = {
+  FILE: '0',
+  DIRECTORY: '5',
+} as const;
+
+type TarType = (typeof TarTypes)[keyof typeof TarTypes];
+
+type DirectoryContent = {
+  path: string;
+  stat: Stats;
+  type: TarType;
+};
+
+export type { TarType, DirectoryContent };
+export { TarTypes };
