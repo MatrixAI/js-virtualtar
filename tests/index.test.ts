@@ -1,5 +1,12 @@
+import { writeArchive } from '@/Generator';
+
 describe('index', () => {
-  test('test', () => {
-    expect(true).toBeTruthy();
+  test('test', async () => {
+    await expect(
+      writeArchive(
+        '/home/aryanj/Downloads/tar/FILE.txt',
+        '/home/aryanj/Downloads/tar/FILE.tar',
+      ),
+    ).toResolve();
   });
 });
