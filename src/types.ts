@@ -1,49 +1,54 @@
-import type { Stats } from 'fs';
+const enum EntryType {
+  FILE = '0',
+  DIRECTORY = '5',
+}
 
-const EntryTypes = {
-  FILE: '0',
-  DIRECTORY: '5',
-} as const;
+const enum HeaderOffset {
+  FILE_NAME = 0,
+  FILE_MODE = 100,
+  OWNER_UID = 108,
+  OWNER_GID = 116,
+  FILE_SIZE = 124,
+  FILE_MTIME = 136,
+  CHECKSUM = 148,
+  TYPE_FLAG = 156,
+  OWNER_NAME = 157,
+  USTAR_NAME = 257,
+  USTAR_VERSION = 263,
+  OWNER_USERNAME = 265,
+  OWNER_GROUPNAME = 297,
+  DEVICE_MAJOR = 329,
+  DEVICE_MINOR = 337,
+  FILE_NAME_EXTRA = 345,
+}
 
-type EntryType = (typeof EntryTypes)[keyof typeof EntryTypes];
+const enum HeaderSize {
+  FILE_NAME = 100,
+  FILE_MODE = 8,
+  OWNER_UID = 8,
+  OWNER_GID = 8,
+  FILE_SIZE = 12,
+  FILE_MTIME = 12,
+  CHECKSUM = 8,
+  TYPE_FLAG = 1,
+  OWNER_NAME = 100,
+  USTAR_NAME = 6,
+  USTAR_VERSION = 2,
+  OWNER_USERNAME = 32,
+  OWNER_GROUPNAME = 32,
+  DEVICE_MAJOR = 8,
+  DEVICE_MINOR = 8,
+  FILE_NAME_EXTRA = 155,
+}
 
-type DirectoryContent = {
-  path: string;
-  stat: Stats;
-  type: EntryType;
+type FileStat = {
+  mode?: number;
+  uid?: number;
+  gid?: number;
+  size?: number;
+  mtime?: Date;
 };
 
-type HeaderOptions = {
-  fileNameEncoding: 'ascii' | 'utf8';
-  blockSize: number;
-};
+export type { FileStat };
 
-// An actual type for `fs` doesn't exist
-type ReadFileOptions = {
-  fs: any;
-  blockSize: number;
-};
-
-// An actual type for `fs` doesn't exist
-type WalkDirectoryOptions = {
-  fs: any;
-  blockSize: number;
-};
-
-// An actual type for `fs` doesn't exist
-type TarOptions = {
-  fs: any;
-  blockSize: number;
-  fileNameEncoding: 'ascii' | 'utf8';
-};
-
-export type {
-  EntryType,
-  DirectoryContent,
-  HeaderOptions,
-  ReadFileOptions,
-  WalkDirectoryOptions,
-  TarOptions,
-};
-
-export { EntryTypes };
+export { EntryType, HeaderOffset, HeaderSize };
