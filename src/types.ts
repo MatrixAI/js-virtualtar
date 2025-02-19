@@ -49,6 +49,31 @@ type FileStat = {
   mtime?: Date;
 };
 
-export type { FileStat };
+type ParserState = 'ready' | 'header' | 'null';
+
+type Header = {
+  type: 'header';
+  fileType: 'file' | 'directory';
+  fileName: string;
+  fileMode: number;
+  ownerUid: number;
+  ownerGid: number;
+  fileSize: number;
+  fileMtime: Date;
+  ownerName: string;
+  ownerUserName: string;
+  ownerGroupName: string;
+};
+
+type Data = {
+  type: 'data';
+  data: Uint8Array;
+};
+
+type End = {
+  type: 'end';
+};
+
+export type { FileStat, ParserState, Header, Data, End };
 
 export { EntryType, HeaderOffset, HeaderSize };

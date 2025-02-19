@@ -2,6 +2,7 @@ import type { FileStat } from '@/types';
 import fs from 'fs';
 import path from 'path';
 import { createHeader, generateEndMarker } from '@/Generator';
+import Parser from '@/Parser';
 import { EntryType } from '@/types';
 
 // TODO: actually write tests
@@ -36,13 +37,7 @@ describe('index', () => {
               uid: stat.uid,
               size: stat.size,
             };
-            tokens.push(
-              createHeader(
-                dirPath,
-                { ...tarStat, size: stat.size },
-                EntryType.FILE,
-              ),
-            );
+            tokens.push(createHeader(dirPath, tarStat, EntryType.FILE));
             const file = await fs.promises.open(
               path.join(walkPath, dirPath),
               'r',
@@ -83,4 +78,46 @@ describe('index', () => {
       ).toResolve();
     }
   }, 60000);
+  test.only('parsing', async () => {
+    if (process.env['CI']) expect(true).toBeTruthy();
+    const file = '/home/aryanj/Downloads/dir/archive.tar';
+
+    const fileHandle = await fs.promises.open(file, 'r');
+    const buffer = Buffer.alloc(512, 0);
+    const parser = new Parser();
+    let writeHandle: fs.promises.FileHandle | undefined = undefined;
+    const root = '/home/aryanj/Downloads/dir';
+
+    while (true) {
+      await fileHandle.read(buffer);
+      const output = parser.write(buffer.buffer);
+
+      if (output == null) continue;
+
+      if (output.type === 'header') {
+        if (writeHandle != null) await writeHandle.close();
+        if (output.fileType === 'directory') {
+          await fs.promises.mkdir(path.join(root, output.fileName));
+        } else {
+          writeHandle = await fs.promises.open(
+            path.join(root, output.fileName),
+            'w+',
+          );
+        }
+      }
+
+      if (output.type === 'data') {
+        if (writeHandle == null) throw new Error('never');
+        await writeHandle.write(output.data);
+      }
+
+      if (output.type === 'end') {
+        if (writeHandle != null) await writeHandle.close();
+        break;
+      }
+    }
+    await fileHandle.close();
+    // Console.log(output);
+    // expect(output).toBeObject();
+  });
 });

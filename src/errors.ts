@@ -20,10 +20,20 @@ class ErrorVirtualTarInvalidStat<T> extends ErrorVirtualTar<T> {
   static description = 'The stat contains invalid data';
 }
 
+class ErrorVirtualTarBlockSize<T> extends ErrorVirtualTar<T> {
+  static description = 'The block size is incorrect';
+}
+
+class ErrorVirtualTarEndOfArchive<T> extends ErrorVirtualTar<T> {
+  static description = 'No data can come after an end-of-archive marker';
+}
+
 export {
   ErrorVirtualTar,
   ErrorVirtualTarUndefinedBehaviour,
   ErrorVirtualTarInvalidFileName,
   ErrorVirtualTarInvalidHeader,
   ErrorVirtualTarInvalidStat,
+  ErrorVirtualTarBlockSize,
+  ErrorVirtualTarEndOfArchive,
 };
