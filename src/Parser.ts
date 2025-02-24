@@ -8,15 +8,14 @@ class Parser {
   protected state: ParserState = 'ready';
   protected remainingBytes = 0;
 
-  write(data: ArrayBuffer): Header | Data | End | undefined {
+  write(data: Uint8Array): Header | Data | End | undefined {
     if (data.byteLength !== constants.BLOCK_SIZE) {
       throw new errors.ErrorVirtualTarBlockSize(
         `Expected block size ${constants.BLOCK_SIZE} but received ${data.byteLength}`,
       );
     }
 
-    // TODO: test if the first block is header by checking magic value
-    const view = new DataView(data, 0, constants.BLOCK_SIZE);
+    const view = new DataView(data.buffer, 0, constants.BLOCK_SIZE);
 
     switch (this.state) {
       case 'ready': {
@@ -53,23 +52,23 @@ class Parser {
           HeaderOffset.OWNER_UID,
           HeaderSize.OWNER_UID,
         );
-        const ownerName = utils.extractChars(
+        const ownerName = utils.extractString(
           view,
           HeaderOffset.OWNER_NAME,
           HeaderSize.OWNER_NAME,
         );
-        const ownerGroupName = utils.extractChars(
+        const ownerGroupName = utils.extractString(
           view,
           HeaderOffset.OWNER_GROUPNAME,
           HeaderSize.OWNER_GROUPNAME,
         );
-        const ownerUserName = utils.extractChars(
+        const ownerUserName = utils.extractString(
           view,
           HeaderOffset.OWNER_USERNAME,
           HeaderSize.OWNER_USERNAME,
         );
         const fileType =
-          utils.extractChars(
+          utils.extractString(
             view,
             HeaderOffset.TYPE_FLAG,
             HeaderSize.TYPE_FLAG,

@@ -5,8 +5,8 @@ import * as utils from './utils';
 import * as constants from './constants';
 
 // Computes the checksum by summing up all the bytes in the header
-function computeChecksum(header: Buffer): number {
-  if (!header.subarray(148, 156).every((byte) => byte === 32)) {
+function computeChecksum(header: Uint8Array): number {
+  if (!header.slice(148, 156).every((byte) => byte === 32)) {
     throw new errors.ErrorVirtualTarInvalidHeader(
       'Checksum field is not properly initialized with spaces',
     );
@@ -14,12 +14,11 @@ function computeChecksum(header: Buffer): number {
   return header.reduce((sum, byte) => sum + byte, 0);
 }
 
-// TODO: Should logging be included?
 function createHeader(
   filePath: string,
   stat: FileStat,
   type: EntryType,
-): Buffer {
+): Uint8Array {
   // TODO: implement long-file-name headers
   if (filePath.length < 1 || filePath.length > 255) {
     throw new errors.ErrorVirtualTarInvalidFileName(
@@ -48,7 +47,7 @@ function createHeader(
 
   // Make sure to initialise the header with zeros to avoid writing nullish
   // blocks.
-  const header = Buffer.alloc(constants.BLOCK_SIZE, 0);
+  const header = new Uint8Array(constants.BLOCK_SIZE);
 
   // The TAR headers follow this structure
   // Start    Size    Description
@@ -71,77 +70,75 @@ function createHeader(
   // 345      155     File name (last 155 bytes, total 255 bytes, null-padded)
   // 500      12      '\0' (unused)
   //
-  // Note that all values are in ASCII format, which is different from the
-  // default formatting of UTF-8 for Buffer.write(). All numbers are also in
-  // octal format as opposed to decimal or hexadecimal.
+  // Note that all numbers are in stringified octal format.
 
   // The first half of the file name (upto 100 bytes) is stored here.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.splitFileName(filePath, 0, HeaderSize.FILE_NAME),
     HeaderOffset.FILE_NAME,
     HeaderSize.FILE_NAME,
-    constants.TEXT_ENCODING,
   );
 
   // The file permissions, or the mode, is stored in the next chunk. This is
   // stored in an octal number format.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad(stat.mode ?? '', HeaderSize.FILE_MODE, '0', '\0'),
     HeaderOffset.FILE_MODE,
     HeaderSize.FILE_MODE,
-    constants.TEXT_ENCODING,
   );
 
   // The owner UID is stored in this chunk
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad(stat.uid ?? '', HeaderSize.OWNER_UID, '0', '\0'),
     HeaderOffset.OWNER_UID,
     HeaderSize.OWNER_UID,
-    constants.TEXT_ENCODING,
   );
 
   // The owner GID is stored in this chunk
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad(stat.gid ?? '', HeaderSize.OWNER_GID, '0', '\0'),
     HeaderOffset.OWNER_GID,
     HeaderSize.OWNER_GID,
-    constants.TEXT_ENCODING,
   );
 
   // The file size is stored in this chunk. The file size must be zero for
   // directories, and it must be set for files.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad(size ?? '', HeaderSize.FILE_SIZE, '0', '\0'),
     HeaderOffset.FILE_SIZE,
     HeaderSize.FILE_SIZE,
-    constants.TEXT_ENCODING,
   );
 
   // The file mtime is stored in this chunk. As the mtime is not modified when
   // extracting a TAR file, the mtime can be preserved while still getting
   // deterministic archives.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad(time, HeaderSize.FILE_MTIME, '0', '\0'),
     HeaderOffset.FILE_MTIME,
     HeaderSize.FILE_MTIME,
-    constants.TEXT_ENCODING,
   );
 
   // The checksum is calculated as the sum of all bytes in the header. It is
   // padded using ASCII spaces, as we currently don't have all the data yet.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad('', HeaderSize.CHECKSUM, ' '),
     HeaderOffset.CHECKSUM,
     HeaderSize.CHECKSUM,
-    constants.TEXT_ENCODING,
   );
 
   // The type of file is written as a single byte in the header.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     type,
     HeaderOffset.TYPE_FLAG,
     HeaderSize.TYPE_FLAG,
-    constants.TEXT_ENCODING,
   );
 
   // File owner name will be null, as regular stat-ing cannot extract that
@@ -149,19 +146,19 @@ function createHeader(
 
   // This value is the USTAR magic string which makes this file appear as
   // a tar file. Without this, the file cannot be parsed and extracted.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     constants.USTAR_NAME,
     HeaderOffset.USTAR_NAME,
     HeaderSize.USTAR_NAME,
-    constants.TEXT_ENCODING,
   );
 
   // This chunk stores the version of USTAR, which is '00' in this case.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     constants.USTAR_VERSION,
     HeaderOffset.USTAR_VERSION,
     HeaderSize.USTAR_VERSION,
-    constants.TEXT_ENCODING,
   );
 
   // Owner user name will be null, as regular stat-ing cannot extract this
@@ -178,7 +175,8 @@ function createHeader(
 
   // The second half of the file name is entered here. This chunk handles file
   // names ranging 100 to 255 characters.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.splitFileName(
       filePath,
       HeaderSize.FILE_NAME,
@@ -186,7 +184,6 @@ function createHeader(
     ),
     HeaderOffset.FILE_NAME_EXTRA,
     HeaderSize.FILE_NAME_EXTRA,
-    constants.TEXT_ENCODING,
   );
 
   // Updating with the new checksum
@@ -195,11 +192,11 @@ function createHeader(
   // Note the extra space in the padding for the checksum value. It is
   // intentionally placed there. The padding for checksum is ASCII spaces
   // instead of null, which is why it is used like this here.
-  header.write(
+  utils.writeBytesToArray(
+    header,
     utils.pad(checksum, HeaderSize.CHECKSUM, '0', '\0 '),
     HeaderOffset.CHECKSUM,
     HeaderSize.CHECKSUM,
-    constants.TEXT_ENCODING,
   );
 
   return header;
@@ -209,7 +206,10 @@ function createHeader(
 // bytes filled with nulls. This aligns with the tar end-of-archive marker
 // being two null-filled blocks.
 function generateEndMarker() {
-  return [Buffer.alloc(512, 0), Buffer.alloc(512, 0)];
+  return [
+    new Uint8Array(constants.BLOCK_SIZE),
+    new Uint8Array(constants.BLOCK_SIZE),
+  ];
 }
 
 export { createHeader, generateEndMarker };

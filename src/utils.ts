@@ -36,7 +36,16 @@ function dateToUnixTime(date: Date): number {
 
 // PARSER
 
-const decoder = new TextDecoder(constants.TEXT_ENCODING);
+const decoder = new TextDecoder('ascii');
+
+// WARN: redundant?
+function dataViewToUint8Array(dataView: DataView): Uint8Array {
+  return new Uint8Array(
+    dataView.buffer,
+    dataView.byteOffset,
+    dataView.byteLength,
+  );
+}
 
 function extractBytes(
   view: DataView,
@@ -46,7 +55,7 @@ function extractBytes(
   return new Uint8Array(view.buffer, offset, length);
 }
 
-function extractChars(
+function extractString(
   view: DataView,
   offset?: number,
   length?: number,
@@ -61,17 +70,17 @@ function extractOctal(
   offset?: number,
   length?: number,
 ): number {
-  const value = extractChars(view, offset, length);
+  const value = extractString(view, offset, length);
   return value.length > 0 ? parseInt(value, 8) : 0;
 }
 
 function parseFileName(view: DataView) {
-  const fileNameLower = extractChars(
+  const fileNameLower = extractString(
     view,
     HeaderOffset.FILE_NAME,
     HeaderSize.FILE_NAME,
   );
-  const fileNameUpper = extractChars(
+  const fileNameUpper = extractString(
     view,
     HeaderOffset.FILE_NAME_EXTRA,
     HeaderSize.FILE_NAME_EXTRA,
@@ -86,14 +95,37 @@ function checkNullView(view: DataView): boolean {
   return true;
 }
 
+function writeBytesToArray(
+  array: Uint8Array,
+  bytes: string | ArrayLike<number>,
+  offset: number,
+  length: number,
+): number {
+  // Ensure indices are within valid bounds
+  const start = Math.max(0, Math.min(offset, array.length));
+  const end = Math.min(array.length, start + Math.max(0, length));
+  const maxLength = end - start;
+
+  let i = 0;
+  for (; i < bytes.length && i < maxLength; i++) {
+    array[start + i] =
+      typeof bytes === 'string' ? bytes.charCodeAt(i) : bytes[i];
+  }
+
+  // Return number of bytes written
+  return i;
+}
+
 export {
   never,
   pad,
   splitFileName,
   dateToUnixTime,
+  dataViewToUint8Array,
   extractBytes,
-  extractChars,
+  extractString,
   extractOctal,
   parseFileName,
   checkNullView,
+  writeBytesToArray,
 };
