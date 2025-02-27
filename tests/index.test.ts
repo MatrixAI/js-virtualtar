@@ -1,121 +1,145 @@
-import type { FileStat } from '@/types';
-import fs from 'fs';
+import type { FileType, DirectoryType } from './utils';
 import path from 'path';
-import { createHeader, generateEndMarker } from '@/Generator';
-import Parser from '@/Parser';
+import { test } from '@fast-check/jest';
+import { generateHeader, generateNullChunk } from '@/Generator';
 import { EntryType } from '@/types';
+import Parser from '@/Parser';
+import * as tarUtils from '@/utils';
+import * as tarConstants from '@/constants';
+import * as utils from './utils';
 
-// TODO: actually write tests
-describe('local test', () => {
-  test('gen', async () => {
-    if (process.env['CI'] != null) {
-      // Skip this test if on CI
-      expect(true).toEqual(true);
-    } else {
-      // Otherwise, run the test which creates a test archive
+describe('integration testing', () => {
+  test.prop([utils.virtualFsArb])(
+    'should archive and unarchive a virtual file system',
+    (vfs) => {
+      const blocks: Array<Uint8Array> = [];
 
-      const walkDir = async (walkPath: string, tokens: Array<Uint8Array>) => {
-        const dirContent = await fs.promises.readdir(walkPath);
+      const generateArchive = (entry: FileType | DirectoryType) => {
+        switch (entry.type) {
+          case EntryType.FILE: {
+            // Generate the header
+            entry = entry as FileType;
+            blocks.push(generateHeader(entry.path, entry.type, entry.stat));
 
-        for (const dirPath of dirContent) {
-          const stat = await fs.promises.stat(path.join(walkPath, dirPath));
-          const tarStat: FileStat = {
-            mtime: stat.mtime,
-            mode: stat.mode,
-            gid: stat.gid,
-            uid: stat.uid,
-          };
+            // Generate the data
+            const encoder = new TextEncoder();
+            let content = entry.content;
+            do {
+              const dataChunk = content.slice(0, tarConstants.BLOCK_SIZE);
+              blocks.push(
+                encoder.encode(dataChunk.padEnd(tarConstants.BLOCK_SIZE, '\0')),
+              );
+              content = content.slice(tarConstants.BLOCK_SIZE);
+            } while (content.length > 0);
+            break;
+          }
 
-          if (stat.isDirectory()) {
-            tokens.push(createHeader(dirPath, tarStat, EntryType.DIRECTORY));
-            await walkDir(dirPath, tokens);
-          } else {
-            const tarStat: FileStat = {
-              mtime: stat.mtime,
-              mode: stat.mode,
-              gid: stat.gid,
-              uid: stat.uid,
-              size: stat.size,
-            };
-            tokens.push(createHeader(dirPath, tarStat, EntryType.FILE));
-            const file = await fs.promises.open(
-              path.join(walkPath, dirPath),
-              'r',
-            );
-            const buffer = Buffer.alloc(512, 0);
-            while (true) {
-              const { bytesRead } = await file.read(buffer, 0, 512, null);
-              if (bytesRead < 512) {
-                buffer.fill('\0', bytesRead);
-                tokens.push(buffer);
-                break;
-              }
-              tokens.push(Buffer.from(buffer));
+          case EntryType.DIRECTORY: {
+            // Generate the header
+            entry = entry as DirectoryType;
+            blocks.push(generateHeader(entry.path, entry.type, entry.stat));
+
+            // Perform the same operation on all children
+            for (const file of entry.children) {
+              generateArchive(file);
             }
-            await file.close();
+            break;
+          }
+
+          default:
+            tarUtils.never('Invalid type');
+        }
+      };
+
+      for (const entry of vfs) {
+        generateArchive(entry);
+      }
+      blocks.push(generateNullChunk());
+      blocks.push(generateNullChunk());
+
+      // The tar archive should be inside the blocks array now. Each block is
+      // a single chunk aligned to 512-byte. Now we can parse it and check if
+      // the parsed virtual file system matches the input.
+
+      const parser = new Parser();
+      const decoder = new TextDecoder();
+      const reconstructedVfs: Array<FileType | DirectoryType> = [];
+      const pathStack: Map<string, any> = new Map();
+      let currentEntry: FileType;
+
+      for (const chunk of blocks) {
+        const token = parser.write(chunk);
+        if (token == null) continue;
+
+        switch (token.type) {
+          case 'header': {
+            let parsedEntry: FileType | DirectoryType;
+
+            if (token.fileType === 'file') {
+              parsedEntry = {
+                type: EntryType.FILE,
+                path: token.filePath,
+                content: '',
+                stat: {
+                  mode: token.fileMode,
+                  uid: token.ownerUid,
+                  gid: token.ownerGid,
+                  size: token.fileSize,
+                  mtime: token.fileMtime,
+                },
+              };
+            } else {
+              parsedEntry = {
+                type: EntryType.DIRECTORY,
+                path: token.filePath,
+                children: [],
+                stat: {
+                  mode: token.fileMode,
+                  uid: token.ownerUid,
+                  gid: token.ownerGid,
+                  size: token.fileSize,
+                  mtime: token.fileMtime,
+                },
+              };
+            }
+
+            const parentPath = path.dirname(token.filePath);
+
+            // If this entry is a directory, then it is pushed to the root of
+            // the reconstructed virtual file system and into a map at the same
+            // time. This allows us to add new children to the directory by
+            // looking up the path in a map rather than modifying the value in
+            // the reconstructed file system.
+
+            if (parentPath === '/' || parentPath === '.') {
+              reconstructedVfs.push(parsedEntry);
+            } else {
+              // It is guaranteed that in a valid tar file, the parent will
+              // always exist.
+              const parent: DirectoryType = pathStack.get(parentPath);
+              parent.children.push(parsedEntry);
+            }
+
+            if (parsedEntry.type === EntryType.DIRECTORY) {
+              pathStack.set(token.filePath, parsedEntry);
+            } else {
+              // Type narrowing doesn't work well with manually specified types
+              currentEntry = parsedEntry as FileType;
+            }
+
+            break;
+          }
+
+          case 'data': {
+            // It is guaranteed that in a valid tar file, a data block will
+            // always come after a header block for a file.
+            currentEntry!['content'] += decoder.decode(token.data);
+            break;
           }
         }
-
-        tokens.push(...generateEndMarker());
-      };
-
-      const writeArchive = async (inPath: string, outPath: string) => {
-        const tokens: Array<Buffer> = [];
-        await walkDir(inPath, tokens);
-
-        const file = await fs.promises.open(outPath, 'w+');
-        for (const block of tokens) {
-          await file.write(block);
-        }
-        await file.close();
-      };
-
-      await expect(
-        writeArchive(
-          '/home/aryanj/Downloads/Arifureta Shokugyou Saikyou/',
-          '/home/aryanj/Downloads/dir/archive.tar',
-        ),
-      ).toResolve();
-    }
-  }, 60000);
-  test('parsing', async () => {
-    if (process.env['CI'] != null) expect(true).toBeTruthy();
-    const file = '/home/aryanj/Downloads/dir/archive.tar';
-
-    const fileHandle = await fs.promises.open(file, 'r');
-    const buffer = new Uint8Array(512);
-    const parser = new Parser();
-    let writeHandle: fs.promises.FileHandle | undefined = undefined;
-    const root = '/home/aryanj/Downloads/dir';
-
-    while (true) {
-      await fileHandle.read(buffer);
-      const output = parser.write(buffer);
-
-      if (output == null) continue;
-
-      if (output.type === 'header') {
-        if (writeHandle != null) await writeHandle.close();
-        if (output.fileType === 'directory') {
-          await fs.promises.mkdir(path.join(root, output.fileName));
-        } else {
-          writeHandle = await fs.promises.open(
-            path.join(root, output.fileName),
-            'w+',
-          );
-        }
       }
 
-      if (output.type === 'data') {
-        if (writeHandle == null) throw new Error('never');
-        await writeHandle.write(output.data);
-      }
-
-      if (output.type === 'end') {
-        if (writeHandle != null) await writeHandle.close();
-        break;
-      }
-    }
-    await fileHandle.close();
-  });
+      expect(reconstructedVfs).toContainAllValues(vfs);
+    },
+  );
 });

@@ -38,15 +38,6 @@ function dateToUnixTime(date: Date): number {
 
 const decoder = new TextDecoder('ascii');
 
-// WARN: redundant?
-function dataViewToUint8Array(dataView: DataView): Uint8Array {
-  return new Uint8Array(
-    dataView.buffer,
-    dataView.byteOffset,
-    dataView.byteLength,
-  );
-}
-
 function extractBytes(
   view: DataView,
   offset?: number,
@@ -74,7 +65,7 @@ function extractOctal(
   return value.length > 0 ? parseInt(value, 8) : 0;
 }
 
-function parseFileName(view: DataView) {
+function parseFilePath(view: DataView) {
   const fileNameLower = extractString(
     view,
     HeaderOffset.FILE_NAME,
@@ -121,11 +112,10 @@ export {
   pad,
   splitFileName,
   dateToUnixTime,
-  dataViewToUint8Array,
   extractBytes,
   extractString,
   extractOctal,
-  parseFileName,
+  parseFilePath,
   checkNullView,
   writeBytesToArray,
 };

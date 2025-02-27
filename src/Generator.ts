@@ -6,31 +6,18 @@ import * as constants from './constants';
 
 // Computes the checksum by summing up all the bytes in the header
 function computeChecksum(header: Uint8Array): number {
-  if (!header.slice(148, 156).every((byte) => byte === 32)) {
-    throw new errors.ErrorVirtualTarInvalidHeader(
-      'Checksum field is not properly initialized with spaces',
-    );
-  }
   return header.reduce((sum, byte) => sum + byte, 0);
 }
 
-function createHeader(
+function generateHeader(
   filePath: string,
-  stat: FileStat,
   type: EntryType,
+  stat: FileStat,
 ): Uint8Array {
   // TODO: implement long-file-name headers
   if (filePath.length < 1 || filePath.length > 255) {
     throw new errors.ErrorVirtualTarInvalidFileName(
       'The file name must be longer than 1 character and shorter than 255 characters',
-    );
-  }
-
-  // The file path must not contain any directories, and must only contain a
-  // file name. This guard checks that.
-  if (filePath.includes('/')) {
-    throw new errors.ErrorVirtualTarInvalidFileName(
-      'File name must not contain /',
     );
   }
 
@@ -202,14 +189,11 @@ function createHeader(
   return header;
 }
 
-// Creates blocks marking the ned of the header. Returns one buffer of 1024
-// bytes filled with nulls. This aligns with the tar end-of-archive marker
-// being two null-filled blocks.
-function generateEndMarker() {
-  return [
-    new Uint8Array(constants.BLOCK_SIZE),
-    new Uint8Array(constants.BLOCK_SIZE),
-  ];
+// Creates a single null block. A null block is a block filled with all zeros.
+// This is needed to end the archive, as two of these blocks mark the end of
+// archive.
+function generateNullChunk() {
+  return new Uint8Array(constants.BLOCK_SIZE);
 }
 
-export { createHeader, generateEndMarker };
+export { generateHeader, generateNullChunk };

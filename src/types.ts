@@ -49,12 +49,10 @@ type FileStat = {
   mtime?: Date;
 };
 
-type ParserState = 'ready' | 'header' | 'null';
-
-type Header = {
+type HeaderToken = {
   type: 'header';
   fileType: 'file' | 'directory';
-  fileName: string;
+  filePath: string;
   fileMode: number;
   ownerUid: number;
   ownerGid: number;
@@ -65,15 +63,27 @@ type Header = {
   ownerGroupName: string;
 };
 
-type Data = {
+type DataToken = {
   type: 'data';
   data: Uint8Array;
 };
 
-type End = {
+type EndToken = {
   type: 'end';
 };
 
-export type { FileStat, ParserState, Header, Data, End };
+const enum FileType {
+  FILE,
+  DIRECTORY,
+}
 
-export { EntryType, HeaderOffset, HeaderSize };
+const enum ParserState {
+  READY,
+  DATA,
+  NULL,
+  ENDED,
+}
+
+export type { FileStat, HeaderToken, DataToken, EndToken };
+
+export { EntryType, HeaderOffset, HeaderSize, FileType, ParserState };
