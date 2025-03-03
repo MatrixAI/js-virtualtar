@@ -1,39 +1,49 @@
 import { AbstractError } from '@matrixai/errors';
 
-class ErrorVirtualTar<T> extends AbstractError<T> {
+class ErrorTar<T> extends AbstractError<T> {
   static description = 'VirtualTar errors';
 }
 
-class ErrorVirtualTarUndefinedBehaviour<T> extends ErrorVirtualTar<T> {
+class ErrorVirtualTarUndefinedBehaviour<T> extends ErrorTar<T> {
   static description = 'You should never see this error';
 }
 
-class ErrorVirtualTarInvalidFileName<T> extends ErrorVirtualTar<T> {
+class ErrorTarGenerator<T> extends ErrorTar<T> {
+  static description = 'VirtualTar genereator errors';
+}
+
+class ErrorTarGeneratorInvalidFileName<T> extends ErrorTarGenerator<T> {
   static description = 'The provided file name is invalid';
 }
 
-class ErrorVirtualTarInvalidHeader<T> extends ErrorVirtualTar<T> {
-  static description = 'The header has invalid data';
-}
-
-class ErrorVirtualTarInvalidStat<T> extends ErrorVirtualTar<T> {
+class ErrorTarGeneratorInvalidStat<T> extends ErrorTarGenerator<T> {
   static description = 'The stat contains invalid data';
 }
 
-class ErrorVirtualTarBlockSize<T> extends ErrorVirtualTar<T> {
+class ErrorTarParser<T> extends ErrorTar<T> {
+  static description = 'VirtualTar parsing errors';
+}
+
+class ErrorTarParserInvalidHeader<T> extends ErrorTarParser<T> {
+  static description = 'The checksum did not match the header';
+}
+
+class ErrorTarParserBlockSize<T> extends ErrorTarParser<T> {
   static description = 'The block size is incorrect';
 }
 
-class ErrorVirtualTarEndOfArchive<T> extends ErrorVirtualTar<T> {
+class ErrorTarParserEndOfArchive<T> extends ErrorTarParser<T> {
   static description = 'No data can come after an end-of-archive marker';
 }
 
 export {
-  ErrorVirtualTar,
+  ErrorTar,
+  ErrorTarGenerator,
   ErrorVirtualTarUndefinedBehaviour,
-  ErrorVirtualTarInvalidFileName,
-  ErrorVirtualTarInvalidHeader,
-  ErrorVirtualTarInvalidStat,
-  ErrorVirtualTarBlockSize,
-  ErrorVirtualTarEndOfArchive,
+  ErrorTarGeneratorInvalidFileName,
+  ErrorTarGeneratorInvalidStat,
+  ErrorTarParser,
+  ErrorTarParserInvalidHeader,
+  ErrorTarParserBlockSize,
+  ErrorTarParserEndOfArchive,
 };

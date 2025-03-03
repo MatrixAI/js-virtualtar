@@ -1,5 +1,5 @@
 import { test } from '@fast-check/jest';
-import { generateHeader } from '@/Generator';
+import { generateHeader, generateNullChunk } from '@/Generator';
 import { EntryType } from '@/types';
 import * as tarUtils from '@/utils';
 import { dirArb, fileArb, splitHeaderData } from './utils';
@@ -39,5 +39,9 @@ describe('archive generation', () => {
     expect(mtime).toEqual(tarUtils.dateToUnixTime(file.stat.mtime!));
     expect(format).toEqual('ustar');
     expect(version).toEqual('00');
+  });
+
+  test('should generate a valid null chunk', () => {
+    expect(generateNullChunk().reduce((sum, byte) => (sum += byte))).toBe(0);
   });
 });

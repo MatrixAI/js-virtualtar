@@ -1,5 +1,6 @@
-import { FileStat, HeaderOffset } from '@/types';
+import type { FileStat } from '@/types';
 import fc from 'fast-check';
+import { HeaderOffset } from '@/types';
 import { EntryType } from '@/types';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
@@ -19,17 +20,16 @@ type DirectoryType = {
 };
 
 function splitHeaderData(data: Uint8Array) {
-  const view = new DataView(data.buffer);
   return {
-    name: tarUtils.parseFilePath(view),
-    type: tarUtils.extractString(view, 156, 1),
-    mode: tarUtils.extractOctal(view, 100, 8),
-    uid: tarUtils.extractOctal(view, 108, 8),
-    gid: tarUtils.extractOctal(view, 116, 8),
-    size: tarUtils.extractOctal(view, 124, 12),
-    mtime: tarUtils.extractOctal(view, 136, 12),
-    format: tarUtils.extractString(view, 257, 6),
-    version: tarUtils.extractString(view, 263, 2),
+    name: tarUtils.parseFilePath(data),
+    type: tarUtils.extractString(data, 156, 1),
+    mode: tarUtils.extractOctal(data, 100, 8),
+    uid: tarUtils.extractOctal(data, 108, 8),
+    gid: tarUtils.extractOctal(data, 116, 8),
+    size: tarUtils.extractOctal(data, 124, 12),
+    mtime: tarUtils.extractOctal(data, 136, 12),
+    format: tarUtils.extractString(data, 257, 6),
+    version: tarUtils.extractString(data, 263, 2),
   };
 }
 
@@ -147,7 +147,14 @@ const tarHeaderArb = fc
     );
     header.set(encoder.encode('        '), HeaderOffset.CHECKSUM);
     header.set(encoder.encode(type), HeaderOffset.TYPE_FLAG);
-    header.set(encoder.encode('ustar  '), HeaderOffset.USTAR_NAME);
+    header.set(
+      encoder.encode(tarConstants.USTAR_NAME),
+      HeaderOffset.USTAR_NAME,
+    );
+    header.set(
+      encoder.encode(tarConstants.USTAR_VERSION),
+      HeaderOffset.USTAR_VERSION,
+    );
 
     // Compute and set checksum
     const checksum = header.reduce((sum, byte) => sum + byte, 0);

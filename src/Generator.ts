@@ -4,11 +4,6 @@ import * as errors from './errors';
 import * as utils from './utils';
 import * as constants from './constants';
 
-// Computes the checksum by summing up all the bytes in the header
-function computeChecksum(header: Uint8Array): number {
-  return header.reduce((sum, byte) => sum + byte, 0);
-}
-
 function generateHeader(
   filePath: string,
   type: EntryType,
@@ -16,24 +11,22 @@ function generateHeader(
 ): Uint8Array {
   // TODO: implement long-file-name headers
   if (filePath.length < 1 || filePath.length > 255) {
-    throw new errors.ErrorVirtualTarInvalidFileName(
+    throw new errors.ErrorTarGeneratorInvalidFileName(
       'The file name must be longer than 1 character and shorter than 255 characters',
     );
   }
 
   // As the size does not matter for directories, it can be undefined. However,
   // if the header is being generated for a file, then it needs to have a valid
-  // size. This guard checks that.
+  // size.
   if (stat.size == null && type === EntryType.FILE) {
-    throw new errors.ErrorVirtualTarInvalidStat('Size must be set for files');
+    throw new errors.ErrorTarGeneratorInvalidStat('Size must be set for files');
   }
   const size = type === EntryType.FILE ? stat.size : 0;
 
   // The time can be undefined, which would be referring to epoch 0.
   const time = utils.dateToUnixTime(stat.mtime ?? new Date());
 
-  // Make sure to initialise the header with zeros to avoid writing nullish
-  // blocks.
   const header = new Uint8Array(constants.BLOCK_SIZE);
 
   // The TAR headers follow this structure
@@ -112,13 +105,7 @@ function generateHeader(
   );
 
   // The checksum is calculated as the sum of all bytes in the header. It is
-  // padded using ASCII spaces, as we currently don't have all the data yet.
-  utils.writeBytesToArray(
-    header,
-    utils.pad('', HeaderSize.CHECKSUM, ' '),
-    HeaderOffset.CHECKSUM,
-    HeaderSize.CHECKSUM,
-  );
+  // left blank for later calculation.
 
   // The type of file is written as a single byte in the header.
   utils.writeBytesToArray(
@@ -174,7 +161,7 @@ function generateHeader(
   );
 
   // Updating with the new checksum
-  const checksum = computeChecksum(header);
+  const checksum = utils.calculateChecksum(header);
 
   // Note the extra space in the padding for the checksum value. It is
   // intentionally placed there. The padding for checksum is ASCII spaces
