@@ -1,11 +1,11 @@
-import type { HeaderToken, DataToken, EndToken } from './types';
+import type { TokenHeader, TokenData, TokenEnd } from './types';
 import { ParserState } from './types';
 import { HeaderOffset, HeaderSize, EntryType } from './types';
 import * as constants from './constants';
 import * as errors from './errors';
 import * as utils from './utils';
 
-function parseHeader(array: Uint8Array): HeaderToken {
+function parseHeader(array: Uint8Array): TokenHeader {
   // Validate header by checking checksum and magic string
   const headerChecksum = utils.extractOctal(
     array,
@@ -15,7 +15,7 @@ function parseHeader(array: Uint8Array): HeaderToken {
   const calculatedChecksum = utils.calculateChecksum(array);
 
   if (headerChecksum !== calculatedChecksum) {
-    throw new errors.ErrorTarParserInvalidHeader(
+    throw new errors.ErrorVirtualTarParserInvalidHeader(
       `Expected checksum to be ${calculatedChecksum} but received ${headerChecksum}`,
     );
   }
@@ -26,7 +26,7 @@ function parseHeader(array: Uint8Array): HeaderToken {
     HeaderSize.USTAR_NAME,
   );
   if (ustarMagic !== constants.USTAR_NAME) {
-    throw new errors.ErrorTarParserInvalidHeader(
+    throw new errors.ErrorVirtualTarParserInvalidHeader(
       `Expected ustar magic to be '${constants.USTAR_NAME}', got '${ustarMagic}'`,
     );
   }
@@ -37,7 +37,7 @@ function parseHeader(array: Uint8Array): HeaderToken {
     HeaderSize.USTAR_VERSION,
   );
   if (ustarVersion !== constants.USTAR_VERSION) {
-    throw new errors.ErrorTarParserInvalidHeader(
+    throw new errors.ErrorVirtualTarParserInvalidHeader(
       `Expected ustar version to be '${constants.USTAR_VERSION}', got '${ustarVersion}'`,
     );
   }
@@ -70,8 +70,8 @@ function parseHeader(array: Uint8Array): HeaderToken {
   );
   const ownerName = utils.extractString(
     array,
-    HeaderOffset.OWNER_NAME,
-    HeaderSize.OWNER_NAME,
+    HeaderOffset.LINK_NAME,
+    HeaderSize.LINK_NAME,
   );
   const ownerGroupName = utils.extractString(
     array,
@@ -83,11 +83,27 @@ function parseHeader(array: Uint8Array): HeaderToken {
     HeaderOffset.OWNER_USERNAME,
     HeaderSize.OWNER_USERNAME,
   );
-  const fileType =
-    utils.extractString(array, HeaderOffset.TYPE_FLAG, HeaderSize.TYPE_FLAG) ===
-    EntryType.FILE
-      ? 'file'
-      : 'directory';
+  let fileType: 'file' | 'directory' | 'metadata';
+  const type = utils.extractString(
+    array,
+    HeaderOffset.TYPE_FLAG,
+    HeaderSize.TYPE_FLAG,
+  );
+  switch (type) {
+    case EntryType.FILE:
+      fileType = 'file';
+      break;
+    case EntryType.DIRECTORY:
+      fileType = 'directory';
+      break;
+    case EntryType.EXTENDED:
+      fileType = 'metadata';
+      break;
+    default:
+      throw new errors.ErrorVirtualTarParserInvalidHeader(
+        `Got invalid file type ${type}`,
+      );
+  }
 
   return {
     type: 'header',
@@ -104,7 +120,7 @@ function parseHeader(array: Uint8Array): HeaderToken {
   };
 }
 
-function parseData(array: Uint8Array, remainingBytes: number): DataToken {
+function parseData(array: Uint8Array, remainingBytes: number): TokenData {
   if (remainingBytes > 512) {
     return { type: 'data', data: utils.extractBytes(array) };
   } else {
@@ -119,14 +135,14 @@ class Parser {
 
   write(data: Uint8Array) {
     if (data.byteLength !== constants.BLOCK_SIZE) {
-      throw new errors.ErrorTarParserBlockSize(
+      throw new errors.ErrorVirtualTarParserBlockSize(
         `Expected block size to be ${constants.BLOCK_SIZE} bytes but received ${data.byteLength} bytes`,
       );
     }
 
     switch (this.state) {
       case ParserState.ENDED: {
-        throw new errors.ErrorTarParserEndOfArchive(
+        throw new errors.ErrorVirtualTarParserEndOfArchive(
           'Archive has already ended',
         );
       }
@@ -138,9 +154,17 @@ class Parser {
           return;
         }
 
-        // Set relevant state if the header corresponds to a file
+        // Set relevant state if the header corresponds to a file. If the file
+        // size 0, then no data blocks will follow the header.
         const headerToken = parseHeader(data);
         if (headerToken.fileType === 'file') {
+          if (headerToken.fileSize !== 0) {
+            this.state = ParserState.DATA;
+            this.remainingBytes = headerToken.fileSize;
+          }
+        } else if (headerToken.fileType === 'metadata') {
+          // A header might not have any data but a metadata header will always
+          // be followed by data.
           this.state = ParserState.DATA;
           this.remainingBytes = headerToken.fileSize;
         }
@@ -149,17 +173,17 @@ class Parser {
 
       case ParserState.DATA: {
         const parsedData = parseData(data, this.remainingBytes);
-        this.remainingBytes -= 512;
-        if (this.remainingBytes < 0) this.state = ParserState.READY;
+        this.remainingBytes -= constants.BLOCK_SIZE;
+        if (this.remainingBytes <= 0) this.state = ParserState.READY;
         return parsedData;
       }
 
       case ParserState.NULL: {
         if (utils.isNullBlock(data)) {
           this.state = ParserState.ENDED;
-          return { type: 'end' } as EndToken;
+          return { type: 'end' } as TokenEnd;
         } else {
-          throw new errors.ErrorTarParserEndOfArchive(
+          throw new errors.ErrorVirtualTarParserEndOfArchive(
             'Received garbage data after first end marker',
           );
         }

@@ -1,49 +1,72 @@
 import { AbstractError } from '@matrixai/errors';
 
-class ErrorTar<T> extends AbstractError<T> {
+class ErrorVirtualTar<T> extends AbstractError<T> {
   static description = 'VirtualTar errors';
 }
 
-class ErrorVirtualTarUndefinedBehaviour<T> extends ErrorTar<T> {
+class ErrorVirtualTarUndefinedBehaviour<T> extends ErrorVirtualTar<T> {
   static description = 'You should never see this error';
 }
 
-class ErrorTarGenerator<T> extends ErrorTar<T> {
+class ErrorVirtualTarGenerator<T> extends ErrorVirtualTar<T> {
   static description = 'VirtualTar genereator errors';
 }
 
-class ErrorTarGeneratorInvalidFileName<T> extends ErrorTarGenerator<T> {
+class ErrorVirtualTarGeneratorInvalidFileName<
+  T,
+> extends ErrorVirtualTarGenerator<T> {
   static description = 'The provided file name is invalid';
 }
 
-class ErrorTarGeneratorInvalidStat<T> extends ErrorTarGenerator<T> {
+class ErrorVirtualTarGeneratorInvalidStat<
+  T,
+> extends ErrorVirtualTarGenerator<T> {
   static description = 'The stat contains invalid data';
 }
 
-class ErrorTarParser<T> extends ErrorTar<T> {
-  static description = 'VirtualTar parsing errors';
-}
-
-class ErrorTarParserInvalidHeader<T> extends ErrorTarParser<T> {
-  static description = 'The checksum did not match the header';
-}
-
-class ErrorTarParserBlockSize<T> extends ErrorTarParser<T> {
+class ErrorVirtualTarGeneratorBlockSize<T> extends ErrorVirtualTarGenerator<T> {
   static description = 'The block size is incorrect';
 }
 
-class ErrorTarParserEndOfArchive<T> extends ErrorTarParser<T> {
+class ErrorVirtualTarGeneratorEndOfArchive<
+  T,
+> extends ErrorVirtualTarGenerator<T> {
+  static description = 'No data can come after an end-of-archive marker';
+}
+
+class ErrorVirtualTarGeneratorInvalidState<
+  T,
+> extends ErrorVirtualTarGenerator<T> {
+  static description = 'The state is incorrect for the desired operation';
+}
+
+class ErrorVirtualTarParser<T> extends ErrorVirtualTar<T> {
+  static description = 'VirtualTar parsing errors';
+}
+
+class ErrorVirtualTarParserInvalidHeader<T> extends ErrorVirtualTarParser<T> {
+  static description = 'The checksum did not match the header';
+}
+
+class ErrorVirtualTarParserBlockSize<T> extends ErrorVirtualTarParser<T> {
+  static description = 'The block size is incorrect';
+}
+
+class ErrorVirtualTarParserEndOfArchive<T> extends ErrorVirtualTarParser<T> {
   static description = 'No data can come after an end-of-archive marker';
 }
 
 export {
-  ErrorTar,
-  ErrorTarGenerator,
+  ErrorVirtualTar,
   ErrorVirtualTarUndefinedBehaviour,
-  ErrorTarGeneratorInvalidFileName,
-  ErrorTarGeneratorInvalidStat,
-  ErrorTarParser,
-  ErrorTarParserInvalidHeader,
-  ErrorTarParserBlockSize,
-  ErrorTarParserEndOfArchive,
+  ErrorVirtualTarGenerator,
+  ErrorVirtualTarGeneratorInvalidFileName,
+  ErrorVirtualTarGeneratorInvalidStat,
+  ErrorVirtualTarGeneratorBlockSize,
+  ErrorVirtualTarGeneratorEndOfArchive,
+  ErrorVirtualTarGeneratorInvalidState,
+  ErrorVirtualTarParser,
+  ErrorVirtualTarParserInvalidHeader,
+  ErrorVirtualTarParserBlockSize,
+  ErrorVirtualTarParserEndOfArchive,
 };

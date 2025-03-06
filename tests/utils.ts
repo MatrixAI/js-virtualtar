@@ -1,22 +1,28 @@
 import type { FileStat } from '@/types';
 import fc from 'fast-check';
+import { ExtendedHeaderKeywords, HeaderSize } from '@/types';
 import { HeaderOffset } from '@/types';
 import { EntryType } from '@/types';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
 
 type FileType = {
-  type: EntryType;
+  type: EntryType.FILE;
   path: string;
   stat: FileStat;
   content: string;
 };
 
 type DirectoryType = {
-  type: EntryType;
+  type: EntryType.DIRECTORY;
   path: string;
   stat: FileStat;
   children: Array<FileType | DirectoryType>;
+};
+
+type MetadataType = {
+  type: EntryType.EXTENDED;
+  size: number;
 };
 
 function splitHeaderData(data: Uint8Array) {
@@ -33,12 +39,16 @@ function splitHeaderData(data: Uint8Array) {
   };
 }
 
-const filenameArb = fc
-  .string({ minLength: 1, maxLength: 32 })
-  .filter((name) => !name.includes('/') && name !== '.' && name !== '..')
-  .noShrink();
+const filenameArb = (
+  { minLength, maxLength } = { minLength: 1, maxLength: 512 },
+) =>
+  fc
+    .string({ minLength, maxLength })
+    .filter((name) => !name.includes('/') && name !== '.' && name !== '..')
+    .noShrink();
 
-const fileContentArb = fc.string({ minLength: 0, maxLength: 4096 }).noShrink();
+const fileContentArb = (maxLength: number = 4096) =>
+  fc.string({ minLength: 0, maxLength }).noShrink();
 
 // Dates are stored in 11 digits of octal number. This can store from 0 to
 // 0o77777777777 or 8589934591 seconds. This comes up to 2242-03-16T12:56:31.
@@ -62,12 +72,15 @@ const statDataArb = (
     })
     .noShrink();
 
-const fileArb = (parentPath: string = ''): fc.Arbitrary<FileType> =>
+const fileArb = (
+  parentPath: string = '',
+  dataLength: number = 4096,
+): fc.Arbitrary<FileType> =>
   fc
     .record({
-      type: fc.constant(EntryType.FILE),
-      path: filenameArb.map((name) => `${parentPath}/${name}`),
-      content: fileContentArb,
+      type: fc.constant<EntryType.FILE>(EntryType.FILE),
+      path: filenameArb().map((name) => `${parentPath}/${name}`),
+      content: fileContentArb(dataLength),
     })
     .chain((file) =>
       statDataArb(EntryType.FILE, file.content).map((stat) => ({
@@ -83,8 +96,8 @@ const dirArb = (
 ): fc.Arbitrary<DirectoryType> =>
   fc
     .record({
-      type: fc.constant(EntryType.DIRECTORY),
-      path: filenameArb.map((name) => `${parentPath}/${name}`),
+      type: fc.constant<EntryType.DIRECTORY>(EntryType.DIRECTORY),
+      path: filenameArb().map((name) => `${parentPath}/${name}`),
     })
     .chain((dir) =>
       fc
@@ -115,59 +128,158 @@ const virtualFsArb = fc
   })
   .noShrink();
 
-const tarHeaderArb = fc
-  .record({
-    path: filenameArb,
-    uid: fc.nat(65535),
-    gid: fc.nat(65535),
-    size: fc.nat(65536),
-    typeflag: fc.constantFrom('0', '5'),
-  })
-  .map(({ path, uid, gid, size, typeflag }) => {
-    const header = new Uint8Array(tarConstants.BLOCK_SIZE);
-    const type = typeflag as '0' | '5';
-    const encoder = new TextEncoder();
+const tarHeaderArb = (
+  { minLength, maxLength } = {
+    minLength: 1,
+    maxLength: 512,
+  },
+) =>
+  fc
+    .record({
+      path: filenameArb({ minLength, maxLength }),
+      uid: fc.nat(65535),
+      gid: fc.nat(65535),
+      size: fc.nat(65536),
+      typeflag: fc.constantFrom('0', '5'),
+    })
+    .map(({ path, uid, gid, size, typeflag }) => {
+      let headers: Array<Uint8Array> = [];
+      headers.push(new Uint8Array(tarConstants.BLOCK_SIZE));
+      const type = typeflag as '0' | '5' | 'x';
+      const encoder = new TextEncoder();
 
-    if (type === '5') size = 0;
+      if (type === '5') size = 0;
 
-    // Fill header fields
-    header.set(encoder.encode(path), HeaderOffset.FILE_NAME);
-    header.set(encoder.encode('0000777'), HeaderOffset.FILE_MODE);
-    header.set(
-      encoder.encode(uid.toString(8).padStart(7, '0')),
-      HeaderOffset.OWNER_UID,
-    );
-    header.set(
-      encoder.encode(gid.toString(8).padStart(7, '0')),
-      HeaderOffset.OWNER_GID,
-    );
-    header.set(
-      encoder.encode(size.toString(8).padStart(11, '0') + '\0'),
-      HeaderOffset.FILE_SIZE,
-    );
-    header.set(encoder.encode('        '), HeaderOffset.CHECKSUM);
-    header.set(encoder.encode(type), HeaderOffset.TYPE_FLAG);
-    header.set(
-      encoder.encode(tarConstants.USTAR_NAME),
-      HeaderOffset.USTAR_NAME,
-    );
-    header.set(
-      encoder.encode(tarConstants.USTAR_VERSION),
-      HeaderOffset.USTAR_VERSION,
-    );
+      // If the
+      if (path.length > tarConstants.STANDARD_PATH_SIZE) {
+        // Set the metadata for the header
+        const extendedHeader = new Uint8Array(tarConstants.BLOCK_SIZE);
+        const extendedData = tarUtils.encodeExtendedHeader({
+          [ExtendedHeaderKeywords.FILE_PATH]: path,
+        });
 
-    // Compute and set checksum
-    const checksum = header.reduce((sum, byte) => sum + byte, 0);
-    header.set(
-      encoder.encode(checksum.toString(8).padStart(6, '0') + '\0 '),
-      HeaderOffset.CHECKSUM,
-    );
+        // Set the size of the content, the type flag, the ustar values, and the
+        // checksum.
+        extendedHeader.set(
+          encoder.encode(
+            tarUtils.pad(
+              extendedData.byteLength,
+              HeaderSize.FILE_SIZE,
+              '0',
+              '\0',
+            ),
+          ),
+          HeaderOffset.FILE_SIZE,
+        );
 
-    return { header, stat: { type, size, path, uid, gid } };
-  })
-  .noShrink();
+        extendedHeader.set(
+          encoder.encode(tarConstants.USTAR_NAME),
+          HeaderOffset.USTAR_NAME,
+        );
+        extendedHeader.set(
+          encoder.encode(tarConstants.USTAR_VERSION),
+          HeaderOffset.USTAR_VERSION,
+        );
+        extendedHeader.set(
+          encoder.encode(EntryType.EXTENDED),
+          HeaderOffset.TYPE_FLAG,
+        );
 
-const tarDataArb = tarHeaderArb
+        const checksum = tarUtils.calculateChecksum(extendedHeader);
+        extendedHeader.set(
+          encoder.encode(checksum.toString(8).padStart(6, '0') + '\0 '),
+          HeaderOffset.CHECKSUM,
+        );
+
+        // Split out the data to 512-byte chunks
+        const data: Array<Uint8Array> = [];
+        let offset = 0;
+        while (offset < extendedData.length) {
+          const block = new Uint8Array(tarConstants.BLOCK_SIZE);
+          block.set(
+            extendedData.slice(offset, offset + tarConstants.BLOCK_SIZE),
+          );
+          data.push(block);
+          offset += tarConstants.BLOCK_SIZE;
+        }
+
+        headers = [extendedHeader, ...data, ...headers];
+      } else {
+        if (path.length < HeaderSize.FILE_NAME) {
+          headers
+            .at(-1)!
+            .set(
+              encoder.encode(
+                tarUtils.splitFileName(path, 0, HeaderSize.FILE_NAME),
+              ),
+              HeaderOffset.FILE_NAME,
+            );
+        } else {
+          const fileSuffix = tarUtils.splitFileName(
+            path,
+            0,
+            HeaderSize.FILE_NAME,
+          );
+          const filePrefix = tarUtils.splitFileName(
+            path,
+            HeaderSize.FILE_NAME,
+            HeaderSize.FILE_NAME_PREFIX,
+          );
+          headers
+            .at(-1)!
+            .set(encoder.encode(fileSuffix), HeaderOffset.FILE_NAME);
+          headers
+            .at(-1)!
+            .set(encoder.encode(filePrefix), HeaderOffset.FILE_NAME_PREFIX);
+        }
+      }
+
+      // Fill normal header fields
+      headers.at(-1)!.set(encoder.encode('0000777'), HeaderOffset.FILE_MODE);
+      headers
+        .at(-1)!
+        .set(
+          encoder.encode(uid.toString(8).padStart(7, '0')),
+          HeaderOffset.OWNER_UID,
+        );
+      headers
+        .at(-1)!
+        .set(
+          encoder.encode(gid.toString(8).padStart(7, '0')),
+          HeaderOffset.OWNER_GID,
+        );
+      headers
+        .at(-1)!
+        .set(
+          encoder.encode(size.toString(8).padStart(11, '0') + '\0'),
+          HeaderOffset.FILE_SIZE,
+        );
+      headers.at(-1)!.set(encoder.encode('        '), HeaderOffset.CHECKSUM);
+      headers.at(-1)!.set(encoder.encode(type), HeaderOffset.TYPE_FLAG);
+      headers
+        .at(-1)!
+        .set(encoder.encode(tarConstants.USTAR_NAME), HeaderOffset.USTAR_NAME);
+      headers
+        .at(-1)!
+        .set(
+          encoder.encode(tarConstants.USTAR_VERSION),
+          HeaderOffset.USTAR_VERSION,
+        );
+
+      // Compute and set checksum
+      const checksum = headers.at(-1)!.reduce((sum, byte) => sum + byte, 0);
+      headers
+        .at(-1)!
+        .set(
+          encoder.encode(checksum.toString(8).padStart(6, '0') + '\0 '),
+          HeaderOffset.CHECKSUM,
+        );
+
+      return { headers, stat: { type, size, path, uid, gid } };
+    })
+    .noShrink();
+
+const tarDataArb = tarHeaderArb()
   .chain((header) =>
     fc
       .record({
@@ -178,7 +290,7 @@ const tarDataArb = tarHeaderArb
         }),
       })
       .map(({ header, data }) => {
-        const { header: headerBlock, stat } = header;
+        const { headers, stat } = header;
         const encoder = new TextEncoder();
         const encodedData = encoder.encode(data);
 
@@ -196,7 +308,7 @@ const tarDataArb = tarHeaderArb
         }
 
         return {
-          header: headerBlock,
+          headers: headers,
           data: data,
           encodedData: dataBlock,
           type: stat.type,
@@ -205,7 +317,7 @@ const tarDataArb = tarHeaderArb
   )
   .noShrink();
 
-export type { FileType, DirectoryType };
+export type { FileType, DirectoryType, MetadataType };
 export {
   splitHeaderData,
   filenameArb,
