@@ -1,17 +1,23 @@
+import type { VirtualFile, VirtualDirectory } from './types';
+import type { ExtendedHeaderKeywords } from '@/types';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { test } from '@fast-check/jest';
 import fc from 'fast-check';
+import * as tar from 'tar';
 import Parser from '@/Parser';
-import { HeaderOffset, ParserState } from '@/types';
+import { EntryType, HeaderOffset, ParserState } from '@/types';
 import * as tarErrors from '@/errors';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
 import * as utils from './utils';
 
 describe('parsing archive blocks', () => {
-  test.prop([utils.tarHeaderArb()])(
+  test.prop([utils.tarEntryArb()])(
     'should parse headers with correct state',
-    ({ headers, stat }) => {
-      const { type, path, uid, gid } = stat;
+    ({ headers, data }) => {
+      const { type, path, stat } = data;
       const parser = new Parser();
       const token = parser.write(headers[0]);
 
@@ -22,27 +28,29 @@ describe('parsing archive blocks', () => {
       const state = parser.state;
 
       switch (type) {
-        case '0':
-          // If there is no data, then another header can be parsed immediately
-          expect(token.fileType).toEqual('file');
-          if (stat.size !== 0) expect(state).toEqual(ParserState.DATA);
-          else expect(state).toEqual(ParserState.READY);
+        case 'file':
+          // The file can have an extended header or a regular header
+          if (data.path.length > tarConstants.STANDARD_PATH_SIZE) {
+            expect(token.fileType).toEqual('metadata');
+            expect(state).toEqual(ParserState.DATA);
+          } else {
+            // If there is no data, then another header can be parsed immediately
+            expect(token.fileType).toEqual('file');
+            if (stat.size !== 0) expect(state).toEqual(ParserState.DATA);
+            else expect(state).toEqual(ParserState.HEADER);
+          }
           break;
-        case '5':
-          expect(state).toEqual(ParserState.READY);
+        case 'directory':
+          expect(state).toEqual(ParserState.HEADER);
           expect(token.fileType).toEqual('directory');
-          break;
-        case 'x':
-          expect(state).toEqual(ParserState.DATA);
-          expect(token.fileType).toEqual('metadata');
           break;
         default:
           tarUtils.never('Invalid state');
       }
 
       expect(token.filePath).toEqual(path);
-      expect(token.ownerUid).toEqual(uid);
-      expect(token.ownerGid).toEqual(gid);
+      expect(token.ownerUid).toEqual(stat.uid);
+      expect(token.ownerGid).toEqual(stat.gid);
     },
   );
 
@@ -75,7 +83,7 @@ describe('parsing archive blocks', () => {
   );
 
   test.prop(
-    [utils.tarHeaderArb(), fc.uint8Array({ minLength: 8, maxLength: 8 })],
+    [utils.tarEntryArb(), fc.uint8Array({ minLength: 8, maxLength: 8 })],
     {
       numRuns: 1,
     },
@@ -105,7 +113,7 @@ describe('parsing archive blocks', () => {
       expect(parser.state).toEqual(ParserState.ENDED);
     });
 
-    test.prop([utils.tarHeaderArb()], { numRuns: 1 })(
+    test.prop([utils.tarEntryArb()], { numRuns: 1 })(
       'should fail if end of archive is malformed',
       ({ headers }) => {
         const parser = new Parser();
@@ -119,7 +127,7 @@ describe('parsing archive blocks', () => {
       },
     );
 
-    test.prop([utils.tarHeaderArb()], { numRuns: 1 })(
+    test.prop([utils.tarEntryArb()], { numRuns: 1 })(
       'should fail if data is written after parser ending',
       ({ headers }) => {
         const parser = new Parser();
@@ -135,7 +143,7 @@ describe('parsing archive blocks', () => {
 });
 
 describe('parsing extended metadata', () => {
-  test.prop([utils.tarHeaderArb({ minLength: 256, maxLength: 512 })], {
+  test.prop([utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })], {
     numRuns: 1,
   })('should create pax header with long paths', ({ headers }) => {
     const parser = new Parser();
@@ -145,9 +153,9 @@ describe('parsing extended metadata', () => {
     expect(parser.state).toEqual(ParserState.DATA);
   });
 
-  test.prop([utils.tarHeaderArb({ minLength: 256, maxLength: 512 })], {
+  test.prop([utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })], {
     numRuns: 1,
-  })('should retrieve full file path from pax header', ({ headers, stat }) => {
+  })('should retrieve full file path from pax header', ({ headers, data }) => {
     // Get the header size
     const parser = new Parser();
     const paxHeader = parser.write(headers[0]);
@@ -157,23 +165,190 @@ describe('parsing extended metadata', () => {
     const size = paxHeader.fileSize;
 
     // Concatenate all the data into a single array
-    const data = new Uint8Array(size);
+    const numDataBlocks = Math.ceil(size / tarConstants.BLOCK_SIZE);
+    const dataBlock = new Uint8Array(size);
     let offset = 0;
-    for (const header of headers.slice(1, -1)) {
+    for (const header of headers.slice(1, 1 + numDataBlocks)) {
       const paxData = parser.write(header);
       if (paxData == null || paxData.type !== 'data') {
-        throw new Error('Invalid state');
+        throw new Error(`Invalid state: ${paxData?.type}`);
       }
-      data.set(paxData.data, offset);
-      offset += tarConstants.BLOCK_SIZE;
+      dataBlock.set(paxData.data, offset);
+      offset += paxData.data.byteLength;
     }
 
     // Parse the data into a record
-    const parsedHeader = tarUtils.decodeExtendedHeader(data);
-    expect(parsedHeader.path).toEqual(stat.path);
+    const parsedHeader = tarUtils.decodeExtendedHeader(dataBlock);
+    expect(parsedHeader.path).toEqual(data.path);
 
     // The actual path in the header is ignored if the PAX header contains
     // metadata for the file path. Ignoring this is dependant on the user
     // instead of on the parser.
   });
+});
+
+describe('testing against tar', () => {
+  test.skip.prop([utils.virtualFsArb], { numRuns: 1 })(
+    'should match output of tar',
+    async (vfs) => {
+      // Create a temp directory to use for node-tar
+      const tempDir = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'js-virtualtar-test-'),
+      );
+
+      try {
+        const vfsPath = path.join(tempDir, 'vfs');
+        await fs.promises.mkdir(vfsPath);
+
+        // Write the vfs to disk for tar to archive
+        const writeVfs = async (entry: VirtualFile | VirtualDirectory) => {
+          // Due to operating system restrictions, all the generated metadata
+          // cannot be written to disk. The mode, mtime, uid, and gid is
+          // determined by external variables, and as such, will not be tested.
+          delete entry.stat.mode;
+          delete entry.stat.mtime;
+          delete entry.stat.uid;
+          delete entry.stat.gid;
+
+          const entryPath = path.join(vfsPath, entry.path);
+          if (entry.type === 'directory') {
+            await fs.promises.mkdir(entryPath);
+            for (const file of entry.children) await writeVfs(file);
+          } else {
+            await fs.promises.writeFile(entryPath, entry.content);
+          }
+        };
+        for (const entry of vfs) await writeVfs(entry);
+
+        // Use tar to archive the file
+        const archivePath = path.join(tempDir, 'archive.tar');
+        const entries = await fs.promises.readdir(vfsPath);
+        await new Promise<void>((resolve) => {
+          tar
+            .create(
+              {
+                cwd: vfsPath,
+                preservePaths: true,
+              },
+              entries,
+            )
+            .pipe(fs.createWriteStream(archivePath))
+            .on('close', resolve);
+        });
+
+        const chunks: Uint8Array[] = [];
+        const stream = fs.createReadStream(archivePath, { highWaterMark: 512 });
+        for await (const chunk of stream) {
+          chunks.push(new Uint8Array(chunk.buffer));
+        }
+
+        const parser = new Parser();
+        const decoder = new TextDecoder();
+        const reconstructedVfs: Array<VirtualFile | VirtualDirectory> = [];
+        const pathStack: Map<string, any> = new Map();
+        let currentEntry: VirtualFile;
+        let extendedData: Uint8Array | undefined;
+        let dataOffset = 0;
+
+        for (const chunk of chunks) {
+          const token = parser.write(chunk);
+          if (token == null) continue;
+
+          switch (token.type) {
+            case 'header': {
+              let parsedEntry: VirtualFile | VirtualDirectory | undefined;
+              let extendedMetadata:
+                | Partial<Record<ExtendedHeaderKeywords, string>>
+                | undefined;
+              if (extendedData != null) {
+                extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);
+              }
+
+              const fullPath = extendedMetadata?.path?.trim()
+                ? extendedMetadata.path
+                : token.filePath;
+
+              switch (token.fileType) {
+                case 'file': {
+                  parsedEntry = {
+                    type: 'file',
+                    path: fullPath,
+                    content: '',
+                    stat: { size: token.fileSize },
+                  };
+                  break;
+                }
+                case 'directory': {
+                  parsedEntry = {
+                    type: 'directory',
+                    path: fullPath,
+                    children: [],
+                    stat: { size: token.fileSize },
+                  };
+                  break;
+                }
+                case 'metadata': {
+                  extendedData = new Uint8Array(token.fileSize);
+                  extendedMetadata = {};
+                  break;
+                }
+                default:
+                  throw new Error('Invalid state');
+              }
+              // If parsed entry has not been reassigned, then it was a metadata
+              // header. Continue to fetch extended metadata.
+              if (parsedEntry == null) continue;
+
+              const parentPath = path.dirname(fullPath);
+
+              // If this entry is a directory, then it is pushed to the root of
+              // the reconstructed virtual file system and into a map at the same
+              // time. This allows us to add new children to the directory by
+              // looking up the path in a map rather than modifying the value in
+              // the reconstructed file system.
+
+              if (parentPath === '.') {
+                reconstructedVfs.push(parsedEntry);
+              } else {
+                // It is guaranteed that in a valid tar file, the parent will
+                // always exist.
+                const parent: VirtualDirectory = pathStack.get(parentPath + '/');
+                parent.children.push(parsedEntry);
+              }
+
+              if (parsedEntry.type === 'directory') {
+                pathStack.set(fullPath, parsedEntry);
+              } else {
+                // Type narrowing doesn't work well with manually specified types
+                currentEntry = parsedEntry as VirtualFile;
+              }
+
+              // If we were using the extended metadata for this header, reset it
+              // for the next header.
+              extendedData = undefined;
+              dataOffset = 0;
+
+              break;
+            }
+
+            case 'data': {
+              if (extendedData == null) {
+                // It is guaranteed that in a valid tar file, a data block will
+                // always come after a header block for a file.
+                currentEntry!['content'] += decoder.decode(token.data);
+              } else {
+                extendedData.set(token.data, dataOffset);
+                dataOffset += token.data.byteLength;
+              }
+              break;
+            }
+          }
+        }
+
+        expect(utils.deepSort(reconstructedVfs)).toEqual(utils.deepSort(vfs));
+      } finally {
+        await fs.promises.rm(tempDir, { force: true, recursive: true });
+      }
+    },
+  );
 });

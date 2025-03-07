@@ -1,3 +1,5 @@
+type FileType = 'file' | 'directory' | 'extended';
+
 enum EntryType {
   FILE = '0',
   DIRECTORY = '5',
@@ -52,6 +54,8 @@ type FileStat = {
   gid?: number;
   size?: number;
   mtime?: Date;
+  username?: string;
+  groupname?: string;
 };
 
 type TokenHeader = {
@@ -77,33 +81,33 @@ type TokenEnd = {
   type: 'end';
 };
 
-enum FileType {
+enum _FileType {
   FILE,
   DIRECTORY,
 }
 
 enum ParserState {
-  READY,
+  HEADER,
   DATA,
   NULL,
   ENDED,
 }
 
 enum GeneratorState {
-  READY,
+  HEADER,
   DATA,
   NULL,
   ENDED,
 }
 
-export type { FileStat, TokenHeader, TokenData, TokenEnd };
+export type { FileType, FileStat, TokenHeader, TokenData, TokenEnd };
 
 export {
   EntryType,
   ExtendedHeaderKeywords,
   HeaderOffset,
   HeaderSize,
-  FileType,
+  _FileType,
   ParserState,
   GeneratorState,
 };

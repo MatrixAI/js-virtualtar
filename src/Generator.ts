@@ -1,155 +1,11 @@
-import type { FileStat } from './types';
-import { GeneratorState, EntryType, HeaderSize, HeaderOffset } from './types';
+import type { FileType, FileStat } from './types';
+import { GeneratorState, EntryType, HeaderSize } from './types';
 import * as errors from './errors';
 import * as utils from './utils';
 import * as constants from './constants';
 
-function generateHeader(filePath: string, type: EntryType, stat: FileStat) {
-  if (filePath.length > 255) {
-    throw new errors.ErrorVirtualTarGeneratorInvalidFileName(
-      'The file name must shorter than 255 characters',
-    );
-  }
-
-  // The time can be undefined, which would be referring to epoch 0.
-  const time = utils.dateToUnixTime(stat.mtime ?? new Date());
-
-  const header = new Uint8Array(constants.BLOCK_SIZE);
-
-  // If the length of the file path is less than 100 bytes, then we write it to
-  // the file name. Otherwise, we write it into the file name prefix and append
-  // file name to it.
-  if (filePath.length < HeaderSize.FILE_NAME) {
-    utils.writeBytesToArray(
-      header,
-      utils.splitFileName(filePath, 0, HeaderSize.FILE_NAME),
-      HeaderOffset.FILE_NAME,
-      HeaderSize.FILE_NAME,
-    );
-  } else {
-    utils.writeBytesToArray(
-      header,
-      utils.splitFileName(
-        filePath,
-        HeaderSize.FILE_NAME,
-        HeaderSize.FILE_NAME_PREFIX,
-      ),
-      HeaderOffset.FILE_NAME,
-      HeaderSize.FILE_NAME,
-    );
-    utils.writeBytesToArray(
-      header,
-      utils.splitFileName(filePath, 0, HeaderSize.FILE_NAME),
-      HeaderOffset.FILE_NAME_PREFIX,
-      HeaderSize.FILE_NAME_PREFIX,
-    );
-  }
-
-  // The file permissions, or the mode, is stored in the next chunk. This is
-  // stored in an octal number format.
-  utils.writeBytesToArray(
-    header,
-    utils.pad(stat.mode ?? '', HeaderSize.FILE_MODE, '0', '\0'),
-    HeaderOffset.FILE_MODE,
-    HeaderSize.FILE_MODE,
-  );
-
-  // The owner UID is stored in this chunk
-  utils.writeBytesToArray(
-    header,
-    utils.pad(stat.uid ?? '', HeaderSize.OWNER_UID, '0', '\0'),
-    HeaderOffset.OWNER_UID,
-    HeaderSize.OWNER_UID,
-  );
-
-  // The owner GID is stored in this chunk
-  utils.writeBytesToArray(
-    header,
-    utils.pad(stat.gid ?? '', HeaderSize.OWNER_GID, '0', '\0'),
-    HeaderOffset.OWNER_GID,
-    HeaderSize.OWNER_GID,
-  );
-
-  // The file size is stored in this chunk. The file size must be zero for
-  // directories, and it must be set for files.
-  utils.writeBytesToArray(
-    header,
-    utils.pad(stat.size ?? '', HeaderSize.FILE_SIZE, '0', '\0'),
-    HeaderOffset.FILE_SIZE,
-    HeaderSize.FILE_SIZE,
-  );
-
-  // The file mtime is stored in this chunk. As the mtime is not modified when
-  // extracting a TAR file, the mtime can be preserved while still getting
-  // deterministic archives.
-  utils.writeBytesToArray(
-    header,
-    utils.pad(time, HeaderSize.FILE_MTIME, '0', '\0'),
-    HeaderOffset.FILE_MTIME,
-    HeaderSize.FILE_MTIME,
-  );
-
-  // The checksum is calculated as the sum of all bytes in the header. It is
-  // left blank for later calculation.
-
-  // The type of file is written as a single byte in the header.
-  utils.writeBytesToArray(
-    header,
-    type,
-    HeaderOffset.TYPE_FLAG,
-    HeaderSize.TYPE_FLAG,
-  );
-
-  // Link name will be null, as regular stat-ing cannot extract that
-  // information.
-
-  // This value is the USTAR magic string which makes this file appear as
-  // a tar file. Without this, the file cannot be parsed and extracted.
-  utils.writeBytesToArray(
-    header,
-    constants.USTAR_NAME,
-    HeaderOffset.USTAR_NAME,
-    HeaderSize.USTAR_NAME,
-  );
-
-  // This chunk stores the version of USTAR, which is '00' in this case.
-  utils.writeBytesToArray(
-    header,
-    constants.USTAR_VERSION,
-    HeaderOffset.USTAR_VERSION,
-    HeaderSize.USTAR_VERSION,
-  );
-
-  // Owner user name will be null, as regular stat-ing cannot extract this
-  // information.
-
-  // Owner group name will be null, as regular stat-ing cannot extract this
-  // information.
-
-  // Device major will be null, as this specific to linux kernel knowing what
-  // drivers to use for executing certain files, and is irrelevant here.
-
-  // Device minor will be null, as this specific to linux kernel knowing what
-  // drivers to use for executing certain files, and is irrelevant here.
-
-  // Updating with the new checksum
-  const checksum = utils.calculateChecksum(header);
-
-  // Note the extra space in the padding for the checksum value. It is
-  // intentionally placed there. The padding for checksum is ASCII spaces
-  // instead of null, which is why it is used like this here.
-  utils.writeBytesToArray(
-    header,
-    utils.pad(checksum, HeaderSize.CHECKSUM, '0', '\0'),
-    HeaderOffset.CHECKSUM,
-    HeaderSize.CHECKSUM,
-  );
-
-  return header;
-}
-
 /**
- * The TAR headers follow this structure
+ * The TAR headers follow this structure:
  * Start    Size    Description
  * ------------------------------
  * 0        100     File name (first 100 bytes)
@@ -171,83 +27,154 @@ function generateHeader(filePath: string, type: EntryType, stat: FileStat) {
  * 500      12      '\0' (unused)
  *
  * Note that all numbers are in stringified octal format.
+ *
+ * The following data will be left blank (null):
+ *  - Link name
+ *  - Owner user name
+ *  - Owner group name
+ *  - Device major
+ *  - Device minor
+ *
+ *  This is because this implementation does not interact with linked files.
+ *  Owner user name and group name cannot be extracted via regular stat-ing,
+ *  so it is left blank. In virtual situations, this field won't be useful
+ *  anyways. The device major and minor are specific to linux kernel, which
+ *  is not relevant to this virtual tar implementation. This is the reason
+ *  these fields have been left blank.
  */
 class Generator {
-  protected state: GeneratorState = GeneratorState.READY;
+  protected state: GeneratorState = GeneratorState.HEADER;
   protected remainingBytes = 0;
 
+  protected generateHeader(filePath: string, type: FileType, stat: FileStat): Uint8Array {
+    if (filePath.length > 255) {
+      throw new errors.ErrorVirtualTarGeneratorInvalidFileName(
+        'The file name must shorter than 255 characters',
+      );
+    }
+
+    if (stat?.size != null && stat?.size > 0o7777777) {
+      throw new errors.ErrorVirtualTarGeneratorInvalidStat(
+        'The file size must be smaller than 7.99 GiB (8,589,934,591 bytes)',
+      );
+    }
+
+    if (
+      stat?.username != null &&
+      stat?.username.length > HeaderSize.OWNER_USERNAME
+    ) {
+      throw new errors.ErrorVirtualTarGeneratorInvalidStat(
+        `The username must not exceed ${HeaderSize.OWNER_USERNAME} bytes`,
+      );
+    }
+
+    if (
+      stat?.groupname != null &&
+      stat?.groupname.length > HeaderSize.OWNER_GROUPNAME
+    ) {
+      throw new errors.ErrorVirtualTarGeneratorInvalidStat(
+        `The groupname must not exceed ${HeaderSize.OWNER_GROUPNAME} bytes`,
+      );
+    }
+
+    const header = new Uint8Array(constants.BLOCK_SIZE);
+
+    // Every directory in tar must have a trailing slash
+    if (type === 'directory') {
+      filePath = filePath.endsWith('/') ? filePath : filePath + '/';
+    }
+
+    utils.writeUstarMagic(header);
+    utils.writeFileType(header, type);
+    utils.writeFilePath(header, filePath);
+    utils.writeFileMode(header, stat.mode);
+    utils.writeOwnerUid(header, stat.uid);
+    utils.writeOwnerGid(header, stat.gid);
+    utils.writeOwnerUserName(header, stat.username);
+    utils.writeOwnerGroupName(header, stat.groupname);
+    utils.writeFileSize(header, stat.size);
+    utils.writeFileMtime(header, stat.mtime);
+
+    // The checksum can only be calculated once the entire header has been
+    // written. This is why the checksum is calculated and written at the end.
+    utils.writeChecksum(header, utils.calculateChecksum(header));
+
+    return header;
+  }
+
   generateFile(filePath: string, stat: FileStat): Uint8Array {
-    if (this.state === GeneratorState.READY) {
+    if (this.state === GeneratorState.HEADER) {
       // Make sure the size is valid
       if (stat.size == null) {
         throw new errors.ErrorVirtualTarGeneratorInvalidStat(
-          'Files should have valid file sizes',
+          'Files must have valid file sizes',
         );
       }
 
-      const generatedBlock = generateHeader(filePath, EntryType.FILE, stat);
+      const generatedBlock = this.generateHeader(filePath, 'file', stat);
 
       // If no data is in the file, then there is no need of a data block. It
       // will remain as READY.
-      if (stat.size !== 0) this.state = GeneratorState.DATA;
-      this.remainingBytes = stat.size;
+      if (stat.size !== 0) {
+        this.state = GeneratorState.DATA;
+        this.remainingBytes = stat.size;
+      }
 
       return generatedBlock;
     }
     throw new errors.ErrorVirtualTarGeneratorInvalidState(
-      `Expected state ${GeneratorState[GeneratorState.READY]} but got ${
+      `Expected state ${GeneratorState[GeneratorState.HEADER]} but got ${
         GeneratorState[this.state]
       }`,
     );
   }
 
-  generateDirectory(filePath: string, stat: FileStat): Uint8Array {
-    if (this.state === GeneratorState.READY) {
+  generateDirectory(filePath: string, stat?: FileStat): Uint8Array {
+    if (this.state === GeneratorState.HEADER) {
+      // The size is zero for directories. Override this value in the stat if
+      // set.
       const directoryStat: FileStat = {
+        ...stat,
         size: 0,
-        mode: stat.mode,
-        mtime: stat.mtime,
-        uid: stat.uid,
-        gid: stat.gid,
       };
-      return generateHeader(filePath, EntryType.DIRECTORY, directoryStat);
+      return this.generateHeader(filePath, 'directory', directoryStat);
     }
     throw new errors.ErrorVirtualTarGeneratorInvalidState(
-      `Expected state ${GeneratorState[GeneratorState.READY]} but got ${
+      `Expected state ${GeneratorState[GeneratorState.HEADER]} but got ${
         GeneratorState[this.state]
       }`,
     );
   }
 
   generateExtended(size: number): Uint8Array {
-    if (this.state === GeneratorState.READY) {
+    if (this.state === GeneratorState.HEADER) {
       this.state = GeneratorState.DATA;
       this.remainingBytes = size;
-      return generateHeader('', EntryType.EXTENDED, { size });
+      return this.generateHeader('./PaxHeader', 'extended', { size });
     }
     throw new errors.ErrorVirtualTarGeneratorInvalidState(
-      `Expected state ${GeneratorState[GeneratorState.READY]} but got ${
+      `Expected state ${GeneratorState[GeneratorState.HEADER]} but got ${
         GeneratorState[this.state]
       }`,
     );
   }
 
   generateData(data: Uint8Array): Uint8Array {
-    if (data.byteLength > constants.BLOCK_SIZE) {
-      throw new errors.ErrorVirtualTarGeneratorBlockSize(
-        `Expected data to be ${constants.BLOCK_SIZE} bytes but received ${data.byteLength} bytes`,
-      );
-    }
-
     if (this.state === GeneratorState.DATA) {
+      if (data.byteLength > constants.BLOCK_SIZE) {
+        throw new errors.ErrorVirtualTarGeneratorBlockSize(
+          `Expected data to be ${constants.BLOCK_SIZE} bytes but received ${data.byteLength} bytes`,
+        );
+      }
+
       if (this.remainingBytes >= constants.BLOCK_SIZE) {
         this.remainingBytes -= constants.BLOCK_SIZE;
-        if (this.remainingBytes === 0) this.state = GeneratorState.READY;
+        if (this.remainingBytes === 0) this.state = GeneratorState.HEADER;
         return data;
       } else {
         // Update state
         this.remainingBytes = 0;
-        this.state = GeneratorState.READY;
+        this.state = GeneratorState.HEADER;
 
         // Pad the remaining data with nulls
         const paddedData = new Uint8Array(constants.BLOCK_SIZE);
@@ -266,9 +193,9 @@ class Generator {
   // Creates a single null block. A null block is a block filled with all zeros.
   // This is needed to end the archive, as two of these blocks mark the end of
   // archive.
-  generateEnd() {
+  generateEnd(): Uint8Array {
     switch (this.state) {
-      case GeneratorState.READY:
+      case GeneratorState.HEADER:
         this.state = GeneratorState.NULL;
         break;
       case GeneratorState.NULL:

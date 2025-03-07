@@ -1,4 +1,9 @@
-import { ExtendedHeaderKeywords, HeaderOffset, HeaderSize } from './types';
+import {
+  EntryType,
+  ExtendedHeaderKeywords,
+  HeaderOffset,
+  HeaderSize,
+} from './types';
 import * as errors from './errors';
 import * as constants from './constants';
 
@@ -34,15 +39,6 @@ function calculateChecksum(array: Uint8Array): number {
     }
     return sum + byte;
   });
-}
-
-function splitFileName(
-  fileName: string,
-  offset: number,
-  size: number,
-  padding: string = '\0',
-) {
-  return fileName.slice(offset, offset + size).padEnd(size, padding);
 }
 
 function dateToUnixTime(date: Date): number {
@@ -102,7 +98,7 @@ function extractDecimal(
   return value.length > 0 ? parseInt(value, 10) : 0;
 }
 
-function parseFilePath(array: Uint8Array) {
+function decodeFilePath(array: Uint8Array): string {
   const fileNamePrefix = extractString(
     array,
     HeaderOffset.FILE_NAME_PREFIX,
@@ -148,6 +144,172 @@ function writeBytesToArray(
 
   // Return number of bytes written
   return i;
+}
+
+function writeFilePath(header: Uint8Array, filePath: string): void {
+  // return fileName.slice(offset, offset + size).padEnd(size, padding);
+  // If the length of the file path is less than 100 bytes, then we write it to
+  // the file name. Otherwise, we write it into the file name prefix and append
+  // file name to it.
+
+  const filePathSuffix = filePath
+    .slice(0, HeaderSize.FILE_NAME)
+    .padEnd(HeaderSize.FILE_NAME, '\0');
+
+  if (filePath.length < HeaderSize.FILE_NAME) {
+    writeBytesToArray(
+      header,
+      filePathSuffix,
+      HeaderOffset.FILE_NAME,
+      HeaderSize.FILE_NAME,
+    );
+  } else {
+    const filePathPrefix = filePath
+      .slice(
+        HeaderSize.FILE_NAME,
+        HeaderSize.FILE_NAME + HeaderSize.FILE_NAME_PREFIX,
+      )
+      .padEnd(HeaderSize.FILE_NAME_PREFIX, '\0');
+
+    writeBytesToArray(
+      header,
+      filePathPrefix,
+      HeaderOffset.FILE_NAME,
+      HeaderSize.FILE_NAME,
+    );
+    writeBytesToArray(
+      header,
+      filePathSuffix,
+      HeaderOffset.FILE_NAME_PREFIX,
+      HeaderSize.FILE_NAME_PREFIX,
+    );
+  }
+}
+
+function writeFileMode(header: Uint8Array, mode?: number): void {
+  // The file permissions, or the mode, is stored in the next chunk. This is
+  // stored in an octal number format.
+  writeBytesToArray(
+    header,
+    pad(mode ?? '', HeaderSize.FILE_MODE, '0', '\0'),
+    HeaderOffset.FILE_MODE,
+    HeaderSize.FILE_MODE,
+  );
+}
+
+function writeOwnerUid(header: Uint8Array, uid?: number): void {
+  writeBytesToArray(
+    header,
+    pad(uid ?? '', HeaderSize.OWNER_UID, '0', '\0'),
+    HeaderOffset.OWNER_UID,
+    HeaderSize.OWNER_UID,
+  );
+}
+
+function writeOwnerGid(header: Uint8Array, gid?: number): void {
+  writeBytesToArray(
+    header,
+    pad(gid ?? '', HeaderSize.OWNER_GID, '0', '\0'),
+    HeaderOffset.OWNER_GID,
+    HeaderSize.OWNER_GID,
+  );
+}
+
+function writeFileSize(header: Uint8Array, size?: number): void {
+  // The file size is stored in this chunk. The file size must be zero for
+  // directories, and it must be set for files.
+  writeBytesToArray(
+    header,
+    pad(size ?? '', HeaderSize.FILE_SIZE, '0', '\0'),
+    HeaderOffset.FILE_SIZE,
+    HeaderSize.FILE_SIZE,
+  );
+}
+
+function writeFileMtime(header: Uint8Array, mtime?: Date): void {
+  // The file mtime is stored in this chunk. As the mtime is not modified when
+  // extracting a TAR file, the mtime can be preserved while still getting
+  // deterministic archives.
+  const date = mtime != null ? dateToUnixTime(mtime) : '';
+  writeBytesToArray(
+    header,
+    pad(date, HeaderSize.FILE_MTIME, '0', '\0'),
+    HeaderOffset.FILE_MTIME,
+    HeaderSize.FILE_MTIME,
+  );
+}
+
+function writeFileType(
+  header: Uint8Array,
+  type: 'file' | 'directory' | 'extended',
+): void {
+  // The file mtime is stored in this chunk. As the mtime is not modified when
+  // extracting a TAR file, the mtime can be preserved while still getting
+  // deterministic archives.
+  let entryType: EntryType;
+  switch (type) {
+    case 'file':
+      entryType = EntryType.FILE;
+      break;
+    case 'directory':
+      entryType = EntryType.DIRECTORY;
+      break;
+    case 'extended':
+      entryType = EntryType.EXTENDED;
+      break;
+  }
+  writeBytesToArray(
+    header,
+    pad(entryType, HeaderSize.TYPE_FLAG, '0', '\0'),
+    HeaderOffset.TYPE_FLAG,
+    HeaderSize.TYPE_FLAG,
+  );
+}
+
+function writeUstarMagic(header: Uint8Array): void {
+  // This value is the USTAR magic string which makes this file appear as
+  // a tar file. Without this, the file cannot be parsed and extracted.
+  writeBytesToArray(
+    header,
+    constants.USTAR_NAME,
+    HeaderOffset.USTAR_NAME,
+    HeaderSize.USTAR_NAME,
+  );
+
+  // This chunk stores the version of USTAR, which is '00' in this case.
+  writeBytesToArray(
+    header,
+    constants.USTAR_VERSION,
+    HeaderOffset.USTAR_VERSION,
+    HeaderSize.USTAR_VERSION,
+  );
+}
+
+function writeChecksum(header: Uint8Array, checksum: number): void {
+  writeBytesToArray(
+    header,
+    pad(checksum, HeaderSize.CHECKSUM, '0', '\0'),
+    HeaderOffset.CHECKSUM,
+    HeaderSize.CHECKSUM,
+  );
+}
+
+function writeOwnerUserName(header: Uint8Array, username?: string): void {
+  writeBytesToArray(
+    header,
+    pad(username ?? '', HeaderSize.OWNER_USERNAME, '0', '\0'),
+    HeaderOffset.OWNER_USERNAME,
+    HeaderSize.OWNER_USERNAME,
+  );
+}
+
+function writeOwnerGroupName(header: Uint8Array, groupname?: string): void {
+  writeBytesToArray(
+    header,
+    pad(groupname ?? '', HeaderSize.OWNER_GROUPNAME, '0', '\0'),
+    HeaderOffset.OWNER_GROUPNAME,
+    HeaderSize.OWNER_GROUPNAME,
+  );
 }
 
 function encodeExtendedHeader(
@@ -243,15 +405,25 @@ export {
   never,
   pad,
   calculateChecksum,
-  splitFileName,
   dateToUnixTime,
   extractBytes,
   extractString,
   extractOctal,
   extractDecimal,
-  parseFilePath,
+  decodeFilePath,
   isNullBlock,
   writeBytesToArray,
+  writeFilePath,
+  writeFileMode,
+  writeOwnerUid,
+  writeOwnerGid,
+  writeFileSize,
+  writeFileMtime,
+  writeFileType,
+  writeUstarMagic,
+  writeChecksum,
+  writeOwnerUserName,
+  writeOwnerGroupName,
   encodeExtendedHeader,
   decodeExtendedHeader,
 };
