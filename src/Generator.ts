@@ -1,5 +1,5 @@
 import type { FileType, FileStat } from './types';
-import { GeneratorState, EntryType, HeaderSize } from './types';
+import { GeneratorState, HeaderSize } from './types';
 import * as errors from './errors';
 import * as utils from './utils';
 import * as constants from './constants';
@@ -46,7 +46,11 @@ class Generator {
   protected state: GeneratorState = GeneratorState.HEADER;
   protected remainingBytes = 0;
 
-  protected generateHeader(filePath: string, type: FileType, stat: FileStat): Uint8Array {
+  protected generateHeader(
+    filePath: string,
+    type: FileType,
+    stat: FileStat,
+  ): Uint8Array {
     if (filePath.length > 255) {
       throw new errors.ErrorVirtualTarGeneratorInvalidFileName(
         'The file name must shorter than 255 characters',
@@ -59,18 +63,15 @@ class Generator {
       );
     }
 
-    if (
-      stat?.username != null &&
-      stat?.username.length > HeaderSize.OWNER_USERNAME
-    ) {
+    if (stat?.uname != null && stat?.uname.length > HeaderSize.OWNER_USERNAME) {
       throw new errors.ErrorVirtualTarGeneratorInvalidStat(
         `The username must not exceed ${HeaderSize.OWNER_USERNAME} bytes`,
       );
     }
 
     if (
-      stat?.groupname != null &&
-      stat?.groupname.length > HeaderSize.OWNER_GROUPNAME
+      stat?.gname != null &&
+      stat?.gname.length > HeaderSize.OWNER_GROUPNAME
     ) {
       throw new errors.ErrorVirtualTarGeneratorInvalidStat(
         `The groupname must not exceed ${HeaderSize.OWNER_GROUPNAME} bytes`,
@@ -90,8 +91,8 @@ class Generator {
     utils.writeFileMode(header, stat.mode);
     utils.writeOwnerUid(header, stat.uid);
     utils.writeOwnerGid(header, stat.gid);
-    utils.writeOwnerUserName(header, stat.username);
-    utils.writeOwnerGroupName(header, stat.groupname);
+    utils.writeOwnerUserName(header, stat.uname);
+    utils.writeOwnerGroupName(header, stat.gname);
     utils.writeFileSize(header, stat.size);
     utils.writeFileMtime(header, stat.mtime);
 
@@ -172,6 +173,13 @@ class Generator {
         if (this.remainingBytes === 0) this.state = GeneratorState.HEADER;
         return data;
       } else {
+        // Make sure we don't attempt to write extra data
+        if (data.byteLength !== this.remainingBytes) {
+          throw new errors.ErrorVirtualTarGeneratorBlockSize(
+            `Expected data to be ${this.remainingBytes} bytes but received ${data.byteLength} bytes`,
+          );
+        }
+
         // Update state
         this.remainingBytes = 0;
         this.state = GeneratorState.HEADER;

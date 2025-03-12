@@ -6,7 +6,7 @@ enum EntryType {
   EXTENDED = 'x',
 }
 
-enum ExtendedHeaderKeywords {
+enum MetadataKeywords {
   FILE_PATH = 'path',
 }
 
@@ -49,13 +49,13 @@ enum HeaderSize {
 }
 
 type FileStat = {
+  size?: number;
   mode?: number;
+  mtime?: Date;
   uid?: number;
   gid?: number;
-  size?: number;
-  mtime?: Date;
-  username?: string;
-  groupname?: string;
+  uname?: string;
+  gname?: string;
 };
 
 type TokenHeader = {
@@ -75,16 +75,12 @@ type TokenHeader = {
 type TokenData = {
   type: 'data';
   data: Uint8Array;
+  end: boolean;
 };
 
 type TokenEnd = {
   type: 'end';
 };
-
-enum _FileType {
-  FILE,
-  DIRECTORY,
-}
 
 enum ParserState {
   HEADER,
@@ -100,14 +96,51 @@ enum GeneratorState {
   ENDED,
 }
 
-export type { FileType, FileStat, TokenHeader, TokenData, TokenEnd };
+enum VirtualTarState {
+  GENERATOR,
+  PARSER,
+}
+
+type ParsedFile = {
+  type: 'file';
+  path: string;
+  stat: FileStat;
+  content: Uint8Array;
+};
+
+type ParsedDirectory = {
+  type: 'directory';
+  path: string;
+  stat: FileStat;
+};
+
+type ParsedMetadata = {
+  type: 'metadata';
+};
+
+type ParsedEmpty = {
+  type: 'empty';
+  awaitingData: boolean;
+};
+
+export type {
+  FileType,
+  FileStat,
+  TokenHeader,
+  TokenData,
+  TokenEnd,
+  ParsedFile,
+  ParsedDirectory,
+  ParsedMetadata,
+  ParsedEmpty,
+};
 
 export {
   EntryType,
-  ExtendedHeaderKeywords,
+  MetadataKeywords,
   HeaderOffset,
   HeaderSize,
-  _FileType,
   ParserState,
   GeneratorState,
+  VirtualTarState,
 };

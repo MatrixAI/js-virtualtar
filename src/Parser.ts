@@ -129,14 +129,14 @@ class Parser {
 
   protected parseData(array: Uint8Array, remainingBytes: number): TokenData {
     if (remainingBytes > 512) {
-      return { type: 'data', data: utils.extractBytes(array) };
+      return { type: 'data', data: utils.extractBytes(array), end: false };
     } else {
       const data = utils.extractBytes(array, 0, remainingBytes);
-      return { type: 'data', data: data };
+      return { type: 'data', data: data, end: true };
     }
   }
 
-  write(data: Uint8Array) {
+  write(data: Uint8Array): TokenHeader | TokenData | TokenEnd | undefined {
     if (data.byteLength !== constants.BLOCK_SIZE) {
       throw new errors.ErrorVirtualTarParserBlockSize(
         `Expected block size to be ${constants.BLOCK_SIZE} bytes but received ${data.byteLength} bytes`,

@@ -1,6 +1,5 @@
 import type { VirtualFile, VirtualDirectory } from '../types';
 import type { FileStat } from '@/types';
-import { EntryType, HeaderSize, HeaderOffset } from '@/types';
 import fc from 'fast-check';
 import * as tarConstants from '@/constants';
 import * as tarUtils from '@/utils';
@@ -10,7 +9,7 @@ import * as tarUtils from '@/utils';
  * this is only used for testing virtual file system and not for any tests which
  * interact with the physical file system.
  */
-const modeArb = (type?: 'file' | 'directory') => {
+const modeArb = (type?: 'file' | 'directory'): fc.Arbitrary<number> => {
   switch (type) {
     case 'file':
       return fc.constant(0o100755);
@@ -21,9 +20,12 @@ const modeArb = (type?: 'file' | 'directory') => {
   }
 };
 
-const uidgidArb = fc.integer({ min: 1000, max: 4096 });
+const uidgidArb: fc.Arbitrary<number> = fc.integer({ min: 1000, max: 4096 });
 
-const sizeArb = (type?: 'file' | 'directory', content?: string) => {
+const sizeArb = (
+  type?: 'file' | 'directory',
+  content?: string,
+): fc.Arbitrary<number> => {
   if (type === 'file') {
     if (content == null) throw new Error('Files must have content');
     return fc.constant(content.length);
@@ -32,7 +34,7 @@ const sizeArb = (type?: 'file' | 'directory', content?: string) => {
 };
 
 // Produce valid dates which snap to whole seconds
-const mtimeArb = fc
+const mtimeArb: fc.Arbitrary<Date> = fc
   .date({
     min: new Date(0),
     max: new Date(0o77777777777 * 1000),
@@ -64,7 +66,7 @@ const filenameArb = (
     minLength: 1,
     maxLength: 512,
   },
-) => {
+): fc.Arbitrary<string> => {
   // Most of these characters are disallowed by windows
   const restrictedCharacters = '/\\*?"<>|:';
   const filterRegex = /^(\.|\.\.|con|prn|aux|nul|tty|null|zero|full)$/i;
@@ -96,7 +98,7 @@ const filenameArb = (
   return filteredFileName.noShrink();
 };
 
-const fileContentArb = (maxLength: number = 4096) =>
+const fileContentArb = (maxLength: number = 4096): fc.Arbitrary<string> =>
   fc.string({ minLength: 0, maxLength, unit: 'binary-ascii' }).noShrink();
 
 const statDataArb = (
@@ -212,7 +214,7 @@ const dirArb = (
  * Uses arbitraries generating files and directories to create a virtual file
  * system as a JSON object.
  */
-const virtualFsArb: fc.Arbitrary<Array<VirtualFile | VirtualDirectory>> = fc
+const fileTreeArb: fc.Arbitrary<Array<VirtualFile | VirtualDirectory>> = fc
   .array(fc.oneof(fileArb(), dirArb(5)), {
     minLength: 1,
     maxLength: 10,
@@ -225,7 +227,10 @@ const tarEntryArb = ({
 }: {
   minFilePathSize?: number;
   maxFilePathSize?: number;
-} = {}) => {
+} = {}): fc.Arbitrary<{
+  headers: Array<Uint8Array>;
+  data: VirtualFile | VirtualDirectory;
+}> => {
   const data = fc.oneof(
     fileArb(undefined, undefined, { minFilePathSize, maxFilePathSize }),
     dirArb(0, undefined, { minFilePathSize, maxFilePathSize }),
@@ -301,6 +306,6 @@ export {
   statDataArb,
   fileArb,
   dirArb,
-  virtualFsArb,
+  fileTreeArb,
   tarEntryArb,
 };

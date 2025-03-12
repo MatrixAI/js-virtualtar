@@ -1,5 +1,5 @@
 import type { VirtualFile, VirtualDirectory } from './types';
-import type { ExtendedHeaderKeywords } from '@/types';
+import type { MetadataKeywords } from '@/types';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -7,7 +7,7 @@ import { test } from '@fast-check/jest';
 import fc from 'fast-check';
 import * as tar from 'tar';
 import Parser from '@/Parser';
-import { EntryType, HeaderOffset, ParserState } from '@/types';
+import { HeaderOffset, ParserState } from '@/types';
 import * as tarErrors from '@/errors';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
@@ -143,9 +143,12 @@ describe('parsing archive blocks', () => {
 });
 
 describe('parsing extended metadata', () => {
-  test.prop([utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })], {
-    numRuns: 1,
-  })('should create pax header with long paths', ({ headers }) => {
+  test.prop(
+    [utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })],
+    {
+      numRuns: 1,
+    },
+  )('should create pax header with long paths', ({ headers }) => {
     const parser = new Parser();
     const token = parser.write(headers[0]);
     expect(token?.type).toEqual('header');
@@ -153,9 +156,12 @@ describe('parsing extended metadata', () => {
     expect(parser.state).toEqual(ParserState.DATA);
   });
 
-  test.prop([utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })], {
-    numRuns: 1,
-  })('should retrieve full file path from pax header', ({ headers, data }) => {
+  test.prop(
+    [utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })],
+    {
+      numRuns: 1,
+    },
+  )('should retrieve full file path from pax header', ({ headers, data }) => {
     // Get the header size
     const parser = new Parser();
     const paxHeader = parser.write(headers[0]);
@@ -188,7 +194,7 @@ describe('parsing extended metadata', () => {
 });
 
 describe('testing against tar', () => {
-  test.skip.prop([utils.virtualFsArb], { numRuns: 1 })(
+  test.skip.prop([utils.fileTreeArb], { numRuns: 1 })(
     'should match output of tar',
     async (vfs) => {
       // Create a temp directory to use for node-tar
@@ -258,7 +264,7 @@ describe('testing against tar', () => {
             case 'header': {
               let parsedEntry: VirtualFile | VirtualDirectory | undefined;
               let extendedMetadata:
-                | Partial<Record<ExtendedHeaderKeywords, string>>
+                | Partial<Record<MetadataKeywords, string>>
                 | undefined;
               if (extendedData != null) {
                 extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);
@@ -312,7 +318,9 @@ describe('testing against tar', () => {
               } else {
                 // It is guaranteed that in a valid tar file, the parent will
                 // always exist.
-                const parent: VirtualDirectory = pathStack.get(parentPath + '/');
+                const parent: VirtualDirectory = pathStack.get(
+                  parentPath + '/',
+                );
                 parent.children.push(parsedEntry);
               }
 

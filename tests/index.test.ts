@@ -15,7 +15,7 @@ test('test', async () => {
   const fs = await import('fs');
   const generator = new tar.Generator();
   const fd = await fs.promises.open('./tmp/test.tar', 'w+');
-  await fd.write(generator.generateFile('abc/def/file.txt', {size: 3}));
+  await fd.write(generator.generateFile('abc/def/file.txt', { size: 3 }));
   await fd.write(generator.generateData(Buffer.from('123')));
   await fd.write(generator.generateEnd());
   await fd.write(generator.generateEnd());

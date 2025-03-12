@@ -19,4 +19,4 @@ type VirtualMetadata = {
   size: number;
 };
 
-export type { VirtualFile, VirtualDirectory, VirtualMetadata }
+export type { VirtualFile, VirtualDirectory, VirtualMetadata };

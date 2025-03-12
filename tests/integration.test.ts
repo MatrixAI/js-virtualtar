@@ -1,15 +1,15 @@
 import type { VirtualFile, VirtualDirectory } from './types';
+import type { MetadataKeywords } from '@/types';
 import path from 'path';
 import { test } from '@fast-check/jest';
 import Generator from '@/Generator';
 import Parser from '@/Parser';
-import { EntryType, ExtendedHeaderKeywords } from '@/types';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
 import * as utils from './utils';
 
 describe('integration testing', () => {
-  test.skip.prop([utils.virtualFsArb])(
+  test.skip.prop([utils.fileTreeArb])(
     'should archive and unarchive a virtual file system',
     (vfs) => {
       const generator = new Generator();
@@ -18,9 +18,7 @@ describe('integration testing', () => {
       const generateArchive = (entry: VirtualFile | VirtualDirectory) => {
         if (entry.path.length > tarConstants.STANDARD_PATH_SIZE) {
           // Push the extended metadata header
-          const data = tarUtils.encodeExtendedHeader({
-            [ExtendedHeaderKeywords.FILE_PATH]: entry.path,
-          });
+          const data = tarUtils.encodeExtendedHeader({ path: entry.path });
           blocks.push(generator.generateExtended(data.byteLength));
 
           // Push the content
@@ -99,7 +97,7 @@ describe('integration testing', () => {
           case 'header': {
             let parsedEntry: VirtualFile | VirtualDirectory | undefined;
             let extendedMetadata:
-              | Partial<Record<ExtendedHeaderKeywords, string>>
+              | Partial<Record<MetadataKeywords, string>>
               | undefined;
             if (extendedData != null) {
               extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);

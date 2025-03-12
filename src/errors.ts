@@ -8,6 +8,10 @@ class ErrorVirtualTarUndefinedBehaviour<T> extends ErrorVirtualTar<T> {
   static description = 'You should never see this error';
 }
 
+class ErrorVirtualTarInvalidState<T> extends ErrorVirtualTar<T> {
+  static description = 'The state is incorrect for the desired operation';
+}
+
 class ErrorVirtualTarGenerator<T> extends ErrorVirtualTar<T> {
   static description = 'VirtualTar genereator errors';
 }
@@ -59,6 +63,7 @@ class ErrorVirtualTarParserEndOfArchive<T> extends ErrorVirtualTarParser<T> {
 export {
   ErrorVirtualTar,
   ErrorVirtualTarUndefinedBehaviour,
+  ErrorVirtualTarInvalidState,
   ErrorVirtualTarGenerator,
   ErrorVirtualTarGeneratorInvalidFileName,
   ErrorVirtualTarGeneratorInvalidStat,

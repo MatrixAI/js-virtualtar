@@ -1,9 +1,4 @@
-import {
-  EntryType,
-  ExtendedHeaderKeywords,
-  HeaderOffset,
-  HeaderSize,
-} from './types';
+import { EntryType, MetadataKeywords, HeaderOffset, HeaderSize } from './types';
 import * as errors from './errors';
 import * as constants from './constants';
 
@@ -147,7 +142,7 @@ function writeBytesToArray(
 }
 
 function writeFilePath(header: Uint8Array, filePath: string): void {
-  // return fileName.slice(offset, offset + size).padEnd(size, padding);
+  // Return fileName.slice(offset, offset + size).padEnd(size, padding);
   // If the length of the file path is less than 100 bytes, then we write it to
   // the file name. Otherwise, we write it into the file name prefix and append
   // file name to it.
@@ -313,7 +308,7 @@ function writeOwnerGroupName(header: Uint8Array, groupname?: string): void {
 }
 
 function encodeExtendedHeader(
-  data: Partial<Record<ExtendedHeaderKeywords, string>>,
+  data: Partial<Record<MetadataKeywords, string>>,
 ): Uint8Array {
   const encoder = new TextEncoder();
   let totalByteSize = 0;
@@ -353,9 +348,9 @@ function encodeExtendedHeader(
 
 function decodeExtendedHeader(
   array: Uint8Array,
-): Partial<Record<ExtendedHeaderKeywords, string>> {
+): Partial<Record<MetadataKeywords, string>> {
   const decoder = new TextDecoder();
-  const data: Partial<Record<ExtendedHeaderKeywords, string>> = {};
+  const data: Partial<Record<MetadataKeywords, string>> = {};
 
   // Track offset and remaining bytes in the array
   let offset = 0;
@@ -378,19 +373,15 @@ function decodeExtendedHeader(
     const key = line.substring(0, entrySeparatorIndex);
     const _value = line.substring(entrySeparatorIndex + 1);
 
-    if (
-      !Object.values(ExtendedHeaderKeywords).includes(
-        key as ExtendedHeaderKeywords,
-      )
-    ) {
+    if (!Object.values(MetadataKeywords).includes(key as MetadataKeywords)) {
       throw new Error('TMP key doesnt exist');
     }
 
     // Remove the trailing newline
     const value = _value.substring(0, _value.length - 1);
-    switch (key as ExtendedHeaderKeywords) {
-      case ExtendedHeaderKeywords.FILE_PATH: {
-        data[ExtendedHeaderKeywords.FILE_PATH] = value;
+    switch (key as MetadataKeywords) {
+      case MetadataKeywords.FILE_PATH: {
+        data[MetadataKeywords.FILE_PATH] = value;
       }
     }
 
@@ -399,6 +390,17 @@ function decodeExtendedHeader(
   }
 
   return data;
+}
+
+function concatUint8Arrays(...arrays: Uint8Array[]): Uint8Array {
+  const totalLength = arrays.reduce((acc, arr) => acc + arr.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const arr of arrays) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
 }
 
 export {
@@ -426,4 +428,5 @@ export {
   writeOwnerGroupName,
   encodeExtendedHeader,
   decodeExtendedHeader,
+  concatUint8Arrays,
 };
