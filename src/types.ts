@@ -105,7 +105,6 @@ type ParsedFile = {
   type: 'file';
   path: string;
   stat: FileStat;
-  content: Uint8Array;
 };
 
 type ParsedDirectory = {
