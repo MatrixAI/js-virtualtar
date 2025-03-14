@@ -2,8 +2,6 @@ import type {
   FileStat,
   ParsedFile,
   ParsedDirectory,
-  ParsedMetadata,
-  ParsedEmpty,
   MetadataKeywords,
   TokenData,
 } from './types';
@@ -22,7 +20,7 @@ class VirtualTar {
   protected queue: Array<() => AsyncGenerator<Uint8Array, void, void>>;
   protected encoder = new TextEncoder();
   protected workingAccumulator: Uint8Array;
-  protected workingToken: ParsedFile | ParsedMetadata | undefined;
+  protected workingTokenType: 'file' | 'extended' | undefined;
   protected workingData: Array<TokenData>;
   protected workingDataQueue: Array<Uint8Array>;
   protected workingMetadata:
@@ -38,6 +36,7 @@ class VirtualTar {
   ) => Promise<void>;
   protected directoryCallback: (header: ParsedDirectory) => Promise<void>;
   protected endCallback: () => void;
+  protected callbacks: Array<Promise<void>>;
 
   constructor({
     mode,
@@ -67,6 +66,8 @@ class VirtualTar {
       this.parser = new Parser();
       this.workingData = [];
       this.workingDataQueue = [];
+      this.workingAccumulator = new Uint8Array();
+      this.callbacks = [];
       this.directoryCallback = onDirectory ?? (() => Promise.resolve());
       this.fileCallback = onFile ?? (() => Promise.resolve());
       this.endCallback = onEnd ?? (() => {});
@@ -140,18 +141,45 @@ class VirtualTar {
       // we need to chunk it up and wrap it in the async generator.
       let gen: AsyncGenerator<Uint8Array, void, void>;
       if (typeof data === 'function') {
+        let workingBuffer: Array<Uint8Array> = [];
+        let bufferSize = 0;
+
         // Ensure the data is properly converted into Uint8Arrays
         gen = (async function* () {
           for await (const chunk of data()) {
+            let chunkBytes: Uint8Array;
             if (typeof chunk === 'string') {
-              yield globalThis.encoder.encode(chunk);
+              chunkBytes = globalThis.encoder.encode(chunk);
             } else {
-              yield chunk;
+              chunkBytes = chunk;
             }
-            if (globalThis.resolveWaitP != null) {
-              globalThis.resolveWaitP();
-              globalThis.resolveWaitP = undefined;
+            workingBuffer.push(chunkBytes);
+            bufferSize += chunkBytes.byteLength;
+
+            while (bufferSize >= constants.BLOCK_SIZE) {
+              // Flatten buffer into one Uint8Array
+              const fullBuffer = utils.concatUint8Arrays(...workingBuffer);
+
+              yield globalThis.generator.generateData(
+                fullBuffer.slice(0, constants.BLOCK_SIZE),
+              );
+
+              // Remove processed bytes from buffer
+              const remaining = fullBuffer.slice(constants.BLOCK_SIZE);
+              workingBuffer = [];
+              if (remaining.byteLength > 0) workingBuffer.push(remaining);
+              bufferSize = remaining.byteLength;
+
+              if (globalThis.resolveWaitP != null) {
+                globalThis.resolveWaitP();
+                globalThis.resolveWaitP = undefined;
+              }
             }
+          }
+          if (bufferSize !== 0) {
+            yield globalThis.generator.generateData(
+              utils.concatUint8Arrays(...workingBuffer),
+            );
           }
         })();
       } else {
@@ -163,7 +191,10 @@ class VirtualTar {
               offset < data.byteLength;
               offset += constants.BLOCK_SIZE
             ) {
-              const chunk = data.slice(offset, offset + constants.BLOCK_SIZE);
+              const chunk = data.subarray(
+                offset,
+                offset + constants.BLOCK_SIZE,
+              );
               yield globalThis.generator.generateData(chunk);
               if (globalThis.resolveWaitP != null) {
                 globalThis.resolveWaitP();
@@ -172,7 +203,7 @@ class VirtualTar {
             }
           } else {
             while (data.length > 0) {
-              const chunk = this.encoder.encode(
+              const chunk = globalThis.encoder.encode(
                 data.slice(0, constants.BLOCK_SIZE),
               );
               yield globalThis.generator.generateData(chunk);
@@ -185,6 +216,7 @@ class VirtualTar {
           }
         })();
       }
+      yield* gen;
     });
   }
 
@@ -207,6 +239,7 @@ class VirtualTar {
         'VirtualTar is not in generator mode',
       );
     }
+    const globalThis = this;
     this.queue.push(async function* () {
       yield globalThis.generator.generateEnd();
       yield globalThis.generator.generateEnd();
@@ -215,10 +248,14 @@ class VirtualTar {
   }
 
   public async settled(): Promise<void> {
-    this.settledP = new Promise<void>((resolve) => {
-      this.resolveSettledP = resolve;
-    });
-    await this.settledP;
+    if (this.state === VirtualTarState.GENERATOR) {
+      this.settledP = new Promise<void>((resolve) => {
+        this.resolveSettledP = resolve;
+      });
+      await this.settledP;
+    } else {
+      await Promise.allSettled(this.callbacks);
+    }
   }
 
   public async *yieldChunks(): AsyncGenerator<Uint8Array, void, void> {
@@ -265,10 +302,15 @@ class VirtualTar {
 
       if (token.type === 'header') {
         // If we have an extended header, then set the working header to the
-        // extended type and continue
-        if (token.fileType === 'metadata') {
-          this.workingToken = { type: 'metadata' };
+        // extended type and continue. Otherwise, if we have a file, then set
+        // the token type to file.
+        if (token.fileType === 'extended') {
+          this.workingTokenType = 'extended';
           continue;
+        } else if (token.fileType === 'file') {
+          this.workingTokenType = 'file';
+        } else {
+          this.workingTokenType = undefined;
         }
 
         // If we have additional metadata, then use it to override token data
@@ -279,7 +321,7 @@ class VirtualTar {
         }
 
         if (token.fileType === 'directory') {
-          this.directoryCallback({
+          const p = this.directoryCallback({
             type: 'directory',
             path: filePath,
             stat: {
@@ -292,9 +334,11 @@ class VirtualTar {
               gname: token.ownerGroupName,
             },
           });
+          this.callbacks.push(p);
           continue;
         } else if (token.fileType === 'file') {
-          this.fileCallback(
+          const globalThis = this;
+          const p = this.fileCallback(
             {
               type: 'file',
               path: filePath,
@@ -309,22 +353,27 @@ class VirtualTar {
               },
             },
             async function* (): AsyncGenerator<Uint8Array, void, void> {
+              // Return early if no data will be coming
+              if (token.fileSize === 0) return;
+
               while (true) {
-                const chunk = this.workingData.shift();
+                const chunk = globalThis.workingData.shift();
                 if (chunk == null) {
                   await new Promise<void>((resolve) => {
-                    this.resolveWaitDataP = resolve;
+                    globalThis.resolveWaitDataP = resolve;
                   });
+                  continue;
                 }
                 yield chunk.data;
-                if (chunk.ended) break;
+                if (chunk.end) break;
               }
             },
           );
+          this.callbacks.push(p);
           continue;
         }
       } else if (token.type === 'data') {
-        if (this.workingToken == null) {
+        if (this.workingTokenType == null) {
           throw new errors.ErrorVirtualTarInvalidState(
             'Received data token before header token',
           );
@@ -334,17 +383,14 @@ class VirtualTar {
 
         // If we are working on a file, then signal that we have gotten more
         // data.
-        if (
-          this.workingToken.type === 'file' &&
-          this.resolveWaitDataP != null
-        ) {
+        if (this.resolveWaitDataP != null) {
           this.resolveWaitDataP();
         }
 
         // If we are working on a metadata token, then we need to collect the
         // entire data array as we need to decode it to file stat which needs to
         // sit in memory anyways.
-        if (token.end && this.workingToken.type === 'metadata') {
+        if (token.end && this.workingTokenType === 'extended') {
           // Concat the working data into a single Uint8Array
           const data = utils.concatUint8Arrays(
             ...this.workingData.map(({ data }) => data),

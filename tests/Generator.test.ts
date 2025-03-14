@@ -1,12 +1,11 @@
-import type { VirtualFile, VirtualDirectory } from './types';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import fc from 'fast-check';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import { EntryType, GeneratorState } from '@/types';
 import Generator from '@/Generator';
+import { EntryType, GeneratorState } from '@/types';
 import * as tarConstants from '@/constants';
 import * as tarErrors from '@/errors';
 import * as tarUtils from '@/utils';
@@ -34,13 +33,13 @@ describe('generating archive', () => {
       expect(uid).toEqual(file.stat.uid);
       expect(gid).toEqual(file.stat.gid);
       expect(size).toEqual(file.stat.size);
-      expect(mtime).toEqual(tarUtils.dateToUnixTime(file.stat.mtime!));
+      expect(mtime).toEqual(tarUtils.dateToTarTime(file.stat.mtime!));
       expect(format).toEqual('ustar');
       expect(version).toEqual('00');
     },
   );
 
-  test.prop([utils.dirArb(0)])(
+  test.prop([utils.dirArb()])(
     'should generate a valid directory header',
     (file) => {
       // Generate and split the header
@@ -60,7 +59,7 @@ describe('generating archive', () => {
       expect(uid).toEqual(file.stat.uid);
       expect(gid).toEqual(file.stat.gid);
       expect(size).toEqual(0);
-      expect(mtime).toEqual(tarUtils.dateToUnixTime(file.stat.mtime!));
+      expect(mtime).toEqual(tarUtils.dateToTarTime(file.stat.mtime!));
       expect(format).toEqual('ustar');
       expect(version).toEqual('00');
     },
@@ -109,7 +108,7 @@ describe('generator state robustness', () => {
   );
 
   test.prop(
-    [fc.oneof(utils.fileContentArb(), utils.fileArb(), utils.dirArb(0))],
+    [fc.oneof(utils.fileContentArb(), utils.fileArb(), utils.dirArb())],
     { numRuns: 10 },
   )('should fail writing data when attempting to end archive', (data) => {
     const generator = new Generator();
@@ -134,7 +133,7 @@ describe('generator state robustness', () => {
   });
 
   test.prop(
-    [fc.oneof(utils.fileContentArb(), utils.fileArb(), utils.dirArb(0))],
+    [fc.oneof(utils.fileContentArb(), utils.fileArb(), utils.dirArb())],
     { numRuns: 10 },
   )('should fail writing data after ending archive', (data) => {
     const generator = new Generator();
@@ -161,9 +160,11 @@ describe('generator state robustness', () => {
 });
 
 describe('testing against tar', () => {
-  test.skip.prop([utils.fileTreeArb])(
+  const encoder = new TextEncoder();
+
+  test.prop([utils.fileTreeArb()])(
     'should match output of tar',
-    async (vfs) => {
+    async (fileTree) => {
       // Create a temp directory to use for node-tar
       const tempDir = await fs.promises.mkdtemp(
         path.join(os.tmpdir(), 'js-virtualtar-test-'),
@@ -174,145 +175,85 @@ describe('testing against tar', () => {
         const generator = new Generator();
         const blocks: Array<Uint8Array> = [];
 
-        const trimmedVfs = structuredClone(vfs);
-        const trimStat = (entry: VirtualFile | VirtualDirectory) => {
-          entry.stat = { size: entry.stat.size, mode: entry.stat.mode };
-          if (entry.type === 'directory') {
-            for (const child of entry.children) {
-              trimStat(child);
-            }
-          }
-        };
-        for (const entry of trimmedVfs) trimStat(entry);
-
-        const generateEntry = (entry: VirtualFile | VirtualDirectory) => {
-          // Due to operating system restrictions, node-tar cannot properly
-          // reproduce all the metadata at the time of extracting files. The
-          // mtime defaults to extraction time, the uid and gid is fixed to the
-          // user who the program is running under. As fast-check is used to
-          // generate this data, this will always differ than the observed stat,
-          // so these fields will be ignored for this test.
-          entry.stat = {
-            mode: entry.stat.mode,
-            size: entry.stat.size,
-          };
-
+        for (const entry of fileTree) {
           if (entry.path.length > tarConstants.STANDARD_PATH_SIZE) {
-            // Push the extended metadata header
-            const data = tarUtils.encodeExtendedHeader({ path: entry.path });
-            blocks.push(generator.generateExtended(data.byteLength));
+            // Push the extended header
+            const extendedData = tarUtils.encodeExtendedHeader({
+              path: entry.path,
+            });
+            blocks.push(generator.generateExtended(extendedData.byteLength));
 
-            // Push the content block
+            // Push each data chunk
             for (
               let offset = 0;
-              offset < data.byteLength;
+              offset < extendedData.byteLength;
               offset += tarConstants.BLOCK_SIZE
             ) {
-              blocks.push(
-                generator.generateData(
-                  data.subarray(offset, offset + tarConstants.BLOCK_SIZE),
-                ),
+              const chunk = extendedData.slice(
+                offset,
+                offset + tarConstants.BLOCK_SIZE,
               );
+              blocks.push(generator.generateData(chunk));
             }
           }
-
           const filePath =
             entry.path.length <= tarConstants.STANDARD_PATH_SIZE
               ? entry.path
               : '';
 
-          switch (entry.type) {
-            case 'file': {
-              // Generate the header
-              entry = entry as VirtualFile;
-              blocks.push(generator.generateFile(filePath, entry.stat));
+          if (entry.type === 'file') {
+            blocks.push(generator.generateFile(filePath, entry.stat));
+            const data = encoder.encode(entry.content);
 
-              // Generate the data
-              const encoder = new TextEncoder();
-              let content = entry.content;
-              while (content.length > 0) {
-                const dataChunk = content.slice(0, tarConstants.BLOCK_SIZE);
-                blocks.push(generator.generateData(encoder.encode(dataChunk)));
-                content = content.slice(tarConstants.BLOCK_SIZE);
-              }
-              break;
+            // Push each data chunk
+            for (
+              let offset = 0;
+              offset < data.byteLength;
+              offset += tarConstants.BLOCK_SIZE
+            ) {
+              const chunk = data.slice(
+                offset,
+                offset + tarConstants.BLOCK_SIZE,
+              );
+              blocks.push(generator.generateData(chunk));
             }
-
-            case 'directory': {
-              // Generate the header
-              entry = entry as VirtualDirectory;
-              blocks.push(generator.generateDirectory(filePath, entry.stat));
-
-              // Perform the same operation on all children
-              for (const file of entry.children) {
-                generateEntry(file);
-              }
-              break;
-            }
-
-            default:
-              throw new Error('Invalid type');
+          } else {
+            blocks.push(generator.generateDirectory(filePath, entry.stat));
           }
-        };
+        }
 
-        for (const entry of vfs) generateEntry(entry);
         blocks.push(generator.generateEnd());
         blocks.push(generator.generateEnd());
 
-        // Write the archive to fs
+        // Write the archive to disk
         const archivePath = path.join(tempDir, 'archive.tar');
-        const tarFile = await fs.promises.open(archivePath, 'w+');
-        for (const block of blocks) await tarFile.write(block);
-        await tarFile.close();
+        const fd = await fs.promises.open(archivePath, 'w');
+        for await (const chunk of blocks) {
+          await fd.write(chunk);
+        }
+        await fd.close();
 
-        const vfsPath = path.join(tempDir, 'vfs');
-        await fs.promises.mkdir(vfsPath, { recursive: true });
+        // Extract the archive from disk
         await tar.extract({
           file: archivePath,
-          cwd: vfsPath,
-          preservePaths: true,
+          cwd: tempDir,
         });
+        await fs.promises.rm(archivePath);
 
-        // Reconstruct the vfs and compare the contents to actual vfs
-        const traverse = async (currentPath: string) => {
-          const entries = await fs.promises.readdir(currentPath, {
-            withFileTypes: true,
-          });
-          const vfsEntries: Array<VirtualFile | VirtualDirectory> = [];
-
-          for (const entry of entries) {
-            const fullPath = path.join(currentPath, entry.name);
-            const relativePath = path.relative(vfsPath, fullPath);
-            const stats = await fs.promises.stat(fullPath);
-
-            if (entry.isDirectory()) {
-              // Sometimes, the size of a directory on disk might not be 0 bytes
-              // due to the storage of additional metadata. This is different from
-              // the way tar stores directories, so the size is being manually set.
-              const entry: VirtualDirectory = {
-                type: 'directory',
-                path: relativePath + '/',
-                children: await traverse(fullPath),
-                stat: { size: 0, mode: stats.mode },
-              };
-              vfsEntries.push(entry);
-            } else {
-              const content = await fs.promises.readFile(fullPath);
-              const entry: VirtualFile = {
-                type: 'file',
-                path: relativePath,
-                content: content.toString(),
-                stat: { size: stats.size, mode: stats.mode },
-              };
-              vfsEntries.push(entry);
-            }
+        for (const entry of fileTree) {
+          // Note that writing files to disk will change some of the file stat
+          // and metadata, so they are not being tested against the input file
+          // tree.
+          if (entry.type === 'file') {
+            const filePath = path.join(tempDir, entry.path);
+            const content = await fs.promises.readFile(filePath, 'utf8');
+            expect(content).toBe(entry.content);
+          } else {
+            const dirPath = path.join(tempDir, entry.path);
+            const stat = await fs.promises.stat(dirPath);
+            expect(stat.isDirectory()).toBe(true);
           }
-
-          return vfsEntries;
-        };
-
-        const reconstructedVfs = await traverse(vfsPath);
-        expect(utils.deepSort(reconstructedVfs)).toEqual(utils.deepSort(vfs));
+        }
       } finally {
         await fs.promises.rm(tempDir, { force: true, recursive: true });
       }

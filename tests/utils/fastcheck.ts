@@ -42,6 +42,12 @@ const mtimeArb: fc.Arbitrary<Date> = fc
   })
   .map((date) => new Date(Math.floor(date.getTime() / 1000) * 1000));
 
+const unameGnameArb: fc.Arbitrary<string> = fc.string({
+  minLength: 1,
+  maxLength: 32,
+  size: 'small',
+});
+
 /**
  * Due to the large amount of conditions, using a string primitive arbitrary
  * takes unfeasibly long to generate values, especially for larger path lengths.
@@ -69,7 +75,7 @@ const filenameArb = (
 ): fc.Arbitrary<string> => {
   // Most of these characters are disallowed by windows
   const restrictedCharacters = '/\\*?"<>|:';
-  const filterRegex = /^(\.|\.\.|con|prn|aux|nul|tty|null|zero|full)$/i;
+  const filterRegex = /^(\.|\.\.|con|prn|aux|nul|tty|null|zero|full)$|^(@|~)/i;
 
   const charCodes = fc.array(
     fc
@@ -112,6 +118,8 @@ const statDataArb = (
       gid: uidgidArb,
       size: sizeArb(type, content),
       mtime: mtimeArb,
+      uname: unameGnameArb,
+      gname: unameGnameArb,
     })
     .noShrink();
 
@@ -124,7 +132,10 @@ const fileArb = (
   }: {
     minFilePathSize?: number;
     maxFilePathSize?: number;
-  } = {},
+  } = {
+    minFilePathSize: 1,
+    maxFilePathSize: 512,
+  },
 ): fc.Arbitrary<VirtualFile> => {
   // Generate file-specific records
   const fileData = fc.record({
@@ -148,7 +159,6 @@ const fileArb = (
 };
 
 const dirArb = (
-  depth: number,
   parentPath: string = '',
   {
     minFilePathSize,
@@ -156,70 +166,53 @@ const dirArb = (
   }: {
     minFilePathSize?: number;
     maxFilePathSize?: number;
-  } = {},
+  } = {
+    minFilePathSize: 1,
+    maxFilePathSize: 512,
+  },
 ): fc.Arbitrary<VirtualDirectory> => {
-  // Generate directory-specific records
-  const dirData = fc.record({
-    type: fc.constant<'directory'>('directory'),
-    path: filenameArb(parentPath, {
-      minLength: minFilePathSize,
-      maxLength: maxFilePathSize,
-    }).map(
-      (name) =>
-        `${
-          !parentPath.endsWith('/') && parentPath !== ''
-            ? parentPath + '/'
-            : parentPath
-        }${name}/`,
-    ),
+  const dirPathArb = filenameArb(parentPath, {
+    minLength: minFilePathSize,
+    maxLength: maxFilePathSize,
   });
 
-  // Add either subdirectories or files as children of the directory
-  const populatedDir = dirData.chain((dir) => {
-    // By default, there is a 1 in 4 chance of a subdirectory being created under
-    // this directory. However, if we have reached the maximum depth of recursion,
-    // then the directory weight drops to zero, ensuring all entries will be a
-    // file.
-    const dirWeight = depth > 0 ? 1 : 0;
-
-    const fileOrDir = fc.oneof(
-      {
-        weight: 3,
-        arbitrary: fileArb(dir.path, undefined, {
-          minFilePathSize,
-          maxFilePathSize,
-        }),
-      },
-      {
-        weight: dirWeight,
-        arbitrary: dirArb(depth - 1, dir.path, {
-          minFilePathSize,
-          maxFilePathSize,
-        }),
-      },
-    );
-
-    const children = fc.array(fileOrDir, { minLength: 0, maxLength: 4 });
-    return children.map((children) => ({ ...dir, children }));
-  });
-
-  const dirWithStat = populatedDir.chain((dir) =>
-    statDataArb('directory').map((stat) => ({ ...dir, stat })),
+  const slashedPathArb = dirPathArb.map((path) =>
+    path.endsWith('/') ? path : path + '/',
   );
 
-  return dirWithStat.noShrink();
+  const dirData = fc.record({
+    type: fc.constant<'directory'>('directory'),
+    path: slashedPathArb,
+    stat: statDataArb('directory'),
+  });
+
+  return dirData.noShrink();
 };
 
 /**
  * Uses arbitraries generating files and directories to create a virtual file
  * system as a JSON object.
  */
-const fileTreeArb: fc.Arbitrary<Array<VirtualFile | VirtualDirectory>> = fc
-  .array(fc.oneof(fileArb(), dirArb(5)), {
+const fileTreeArb = (): fc.Arbitrary<Array<VirtualFile | VirtualDirectory>> => {
+  const allEntries = fc.array(fc.oneof(fileArb(), dirArb()), {
     minLength: 1,
     maxLength: 10,
-  })
-  .noShrink();
+  });
+
+  const filteredEntries = allEntries.chain((entries) => {
+    const uniquePaths = new Set<string>();
+    const uniqueEntries = entries.filter((entry) => {
+      if (uniquePaths.has(entry.path)) {
+        return false;
+      }
+      uniquePaths.add(entry.path);
+      return true;
+    });
+    return fc.constant(uniqueEntries);
+  });
+
+  return filteredEntries.noShrink();
+};
 
 const tarEntryArb = ({
   minFilePathSize,
@@ -233,7 +226,7 @@ const tarEntryArb = ({
 }> => {
   const data = fc.oneof(
     fileArb(undefined, undefined, { minFilePathSize, maxFilePathSize }),
-    dirArb(0, undefined, { minFilePathSize, maxFilePathSize }),
+    dirArb(undefined, { minFilePathSize, maxFilePathSize }),
   );
 
   const headers = data.map((data) => {
@@ -301,6 +294,7 @@ export {
   uidgidArb,
   sizeArb,
   mtimeArb,
+  unameGnameArb,
   filenameArb,
   fileContentArb,
   statDataArb,

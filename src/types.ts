@@ -60,14 +60,13 @@ type FileStat = {
 
 type TokenHeader = {
   type: 'header';
-  fileType: 'file' | 'directory' | 'metadata';
+  fileType: FileType;
   filePath: string;
   fileMode: number;
   ownerUid: number;
   ownerGid: number;
   fileSize: number;
   fileMtime: Date;
-  ownerName: string;
   ownerUserName: string;
   ownerGroupName: string;
 };
@@ -113,8 +112,8 @@ type ParsedDirectory = {
   stat: FileStat;
 };
 
-type ParsedMetadata = {
-  type: 'metadata';
+type ParsedExtended = {
+  type: 'extended';
 };
 
 type ParsedEmpty = {
@@ -130,7 +129,7 @@ export type {
   TokenEnd,
   ParsedFile,
   ParsedDirectory,
-  ParsedMetadata,
+  ParsedExtended,
   ParsedEmpty,
 };
 

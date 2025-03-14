@@ -3,8 +3,8 @@ import type { MetadataKeywords } from '@/types';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { test } from '@fast-check/jest';
 import fc from 'fast-check';
+import { test } from '@fast-check/jest';
 import * as tar from 'tar';
 import Parser from '@/Parser';
 import { HeaderOffset, ParserState } from '@/types';
@@ -194,53 +194,53 @@ describe('parsing extended metadata', () => {
 });
 
 describe('testing against tar', () => {
-  test.skip.prop([utils.fileTreeArb], { numRuns: 1 })(
+  let tempDir: string | undefined;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await fs.promises.rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  test.prop([utils.fileTreeArb()], { numRuns: 100 })(
     'should match output of tar',
-    async (vfs) => {
+    async (fileTree) => {
       // Create a temp directory to use for node-tar
       const tempDir = await fs.promises.mkdtemp(
         path.join(os.tmpdir(), 'js-virtualtar-test-'),
       );
 
       try {
-        const vfsPath = path.join(tempDir, 'vfs');
-        await fs.promises.mkdir(vfsPath);
+        const fileTreePath = path.join(tempDir, 'tree');
+        await fs.promises.mkdir(fileTreePath);
 
         // Write the vfs to disk for tar to archive
-        const writeVfs = async (entry: VirtualFile | VirtualDirectory) => {
-          // Due to operating system restrictions, all the generated metadata
-          // cannot be written to disk. The mode, mtime, uid, and gid is
-          // determined by external variables, and as such, will not be tested.
-          delete entry.stat.mode;
-          delete entry.stat.mtime;
-          delete entry.stat.uid;
-          delete entry.stat.gid;
-
-          const entryPath = path.join(vfsPath, entry.path);
+        const writeFileTree = async (entry: VirtualFile | VirtualDirectory) => {
+          const entryPath = path.join(fileTreePath, entry.path);
           if (entry.type === 'directory') {
-            await fs.promises.mkdir(entryPath);
-            for (const file of entry.children) await writeVfs(file);
+            await fs.promises.mkdir(entryPath, { recursive: true });
           } else {
             await fs.promises.writeFile(entryPath, entry.content);
           }
         };
-        for (const entry of vfs) await writeVfs(entry);
+        for (const entry of fileTree) await writeFileTree(entry);
 
         // Use tar to archive the file
         const archivePath = path.join(tempDir, 'archive.tar');
-        const entries = await fs.promises.readdir(vfsPath);
-        await new Promise<void>((resolve) => {
-          tar
-            .create(
-              {
-                cwd: vfsPath,
-                preservePaths: true,
-              },
-              entries,
-            )
-            .pipe(fs.createWriteStream(archivePath))
-            .on('close', resolve);
-        });
+        const entries = await fs.promises.readdir(fileTreePath);
+        const archive = tar.create(
+          {
+            cwd: fileTreePath,
+            preservePaths: true,
+          },
+          entries,
+        );
+
+        const fd = await fs.promises.open(archivePath, 'w');
+        for await (const chunk of archive) {
+          await fd.write(chunk);
+        }
+        await fd.close();
 
         const chunks: Uint8Array[] = [];
         const stream = fs.createReadStream(archivePath, { highWaterMark: 512 });
@@ -249,10 +249,10 @@ describe('testing against tar', () => {
         }
 
         const parser = new Parser();
-        const decoder = new TextDecoder();
-        const reconstructedVfs: Array<VirtualFile | VirtualDirectory> = [];
-        const pathStack: Map<string, any> = new Map();
-        let currentEntry: VirtualFile;
+        const encoder = new TextEncoder();
+        const reconstructedTree: Record<string, Uint8Array | null> = {};
+        let workingPath: string | undefined = undefined;
+        let workingData: Uint8Array = new Uint8Array();
         let extendedData: Uint8Array | undefined;
         let dataOffset = 0;
 
@@ -262,7 +262,6 @@ describe('testing against tar', () => {
 
           switch (token.type) {
             case 'header': {
-              let parsedEntry: VirtualFile | VirtualDirectory | undefined;
               let extendedMetadata:
                 | Partial<Record<MetadataKeywords, string>>
                 | undefined;
@@ -270,65 +269,32 @@ describe('testing against tar', () => {
                 extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);
               }
 
-              const fullPath = extendedMetadata?.path?.trim()
+              const fullPath = extendedMetadata?.path
                 ? extendedMetadata.path
                 : token.filePath;
 
+              if (workingPath != null) {
+                reconstructedTree[workingPath] = workingData;
+                workingData = new Uint8Array();
+                workingPath = undefined;
+              }
+
               switch (token.fileType) {
                 case 'file': {
-                  parsedEntry = {
-                    type: 'file',
-                    path: fullPath,
-                    content: '',
-                    stat: { size: token.fileSize },
-                  };
+                  workingPath = fullPath;
                   break;
                 }
                 case 'directory': {
-                  parsedEntry = {
-                    type: 'directory',
-                    path: fullPath,
-                    children: [],
-                    stat: { size: token.fileSize },
-                  };
+                  reconstructedTree[fullPath] = null;
                   break;
                 }
-                case 'metadata': {
+                case 'extended': {
                   extendedData = new Uint8Array(token.fileSize);
                   extendedMetadata = {};
                   break;
                 }
                 default:
                   throw new Error('Invalid state');
-              }
-              // If parsed entry has not been reassigned, then it was a metadata
-              // header. Continue to fetch extended metadata.
-              if (parsedEntry == null) continue;
-
-              const parentPath = path.dirname(fullPath);
-
-              // If this entry is a directory, then it is pushed to the root of
-              // the reconstructed virtual file system and into a map at the same
-              // time. This allows us to add new children to the directory by
-              // looking up the path in a map rather than modifying the value in
-              // the reconstructed file system.
-
-              if (parentPath === '.') {
-                reconstructedVfs.push(parsedEntry);
-              } else {
-                // It is guaranteed that in a valid tar file, the parent will
-                // always exist.
-                const parent: VirtualDirectory = pathStack.get(
-                  parentPath + '/',
-                );
-                parent.children.push(parsedEntry);
-              }
-
-              if (parsedEntry.type === 'directory') {
-                pathStack.set(fullPath, parsedEntry);
-              } else {
-                // Type narrowing doesn't work well with manually specified types
-                currentEntry = parsedEntry as VirtualFile;
               }
 
               // If we were using the extended metadata for this header, reset it
@@ -341,19 +307,36 @@ describe('testing against tar', () => {
 
             case 'data': {
               if (extendedData == null) {
-                // It is guaranteed that in a valid tar file, a data block will
-                // always come after a header block for a file.
-                currentEntry!['content'] += decoder.decode(token.data);
+                workingData = tarUtils.concatUint8Arrays(
+                  workingData,
+                  token.data,
+                );
               } else {
                 extendedData.set(token.data, dataOffset);
                 dataOffset += token.data.byteLength;
               }
               break;
             }
+
+            case 'end': {
+              // Finalise adding the last file into the tree
+              if (workingPath != null) {
+                reconstructedTree[workingPath] = workingData;
+                workingData = new Uint8Array();
+                workingPath = undefined;
+              }
+            }
           }
         }
 
-        expect(utils.deepSort(reconstructedVfs)).toEqual(utils.deepSort(vfs));
+        for (const entry of fileTree) {
+          if (entry.type === 'file') {
+            const content = encoder.encode(entry.content);
+            expect(reconstructedTree[entry.path]).toEqual(content);
+          } else {
+            expect(reconstructedTree[entry.path]).toBeNull();
+          }
+        }
       } finally {
         await fs.promises.rm(tempDir, { force: true, recursive: true });
       }

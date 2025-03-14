@@ -11,7 +11,6 @@ type VirtualDirectory = {
   type: 'directory';
   path: string;
   stat: FileStat;
-  children: Array<VirtualFile | VirtualDirectory>;
 };
 
 type VirtualMetadata = {

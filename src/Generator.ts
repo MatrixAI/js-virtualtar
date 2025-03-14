@@ -1,8 +1,8 @@
 import type { FileType, FileStat } from './types';
 import { GeneratorState, HeaderSize } from './types';
+import * as constants from './constants';
 import * as errors from './errors';
 import * as utils from './utils';
-import * as constants from './constants';
 
 /**
  * The TAR headers follow this structure:
@@ -174,7 +174,7 @@ class Generator {
         return data;
       } else {
         // Make sure we don't attempt to write extra data
-        if (data.byteLength !== this.remainingBytes) {
+        if (data.byteLength > this.remainingBytes) {
           throw new errors.ErrorVirtualTarGeneratorBlockSize(
             `Expected data to be ${this.remainingBytes} bytes but received ${data.byteLength} bytes`,
           );
@@ -210,8 +210,10 @@ class Generator {
         this.state = GeneratorState.ENDED;
         break;
       default:
-        throw new errors.ErrorVirtualTarGeneratorEndOfArchive(
-          'Exactly two null chunks should be generated consecutively to end archive',
+        throw new errors.ErrorVirtualTarGeneratorInvalidState(
+          `Expected state ${GeneratorState[GeneratorState.HEADER]} or ${
+            GeneratorState[GeneratorState.NULL]
+          } but got ${GeneratorState[this.state]}`,
         );
     }
     return new Uint8Array(constants.BLOCK_SIZE);

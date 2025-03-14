@@ -1,6 +1,4 @@
-import type { VirtualFile, VirtualDirectory } from './types';
-import type { MetadataKeywords } from '@/types';
-import path from 'path';
+import type { FileStat, MetadataKeywords } from '@/types';
 import { test } from '@fast-check/jest';
 import Generator from '@/Generator';
 import Parser from '@/Parser';
@@ -9,71 +7,57 @@ import * as tarConstants from '@/constants';
 import * as utils from './utils';
 
 describe('integration testing', () => {
-  test.skip.prop([utils.fileTreeArb])(
+  test.prop([utils.fileTreeArb()])(
     'should archive and unarchive a virtual file system',
-    (vfs) => {
+    (fileTree) => {
       const generator = new Generator();
       const blocks: Array<Uint8Array> = [];
+      const encoder = new TextEncoder();
 
-      const generateArchive = (entry: VirtualFile | VirtualDirectory) => {
+      for (const entry of fileTree) {
         if (entry.path.length > tarConstants.STANDARD_PATH_SIZE) {
-          // Push the extended metadata header
-          const data = tarUtils.encodeExtendedHeader({ path: entry.path });
-          blocks.push(generator.generateExtended(data.byteLength));
+          // Push the extended header
+          const extendedData = tarUtils.encodeExtendedHeader({
+            path: entry.path,
+          });
+          blocks.push(generator.generateExtended(extendedData.byteLength));
 
-          // Push the content
+          // Push each data chunk
+          for (
+            let offset = 0;
+            offset < extendedData.byteLength;
+            offset += tarConstants.BLOCK_SIZE
+          ) {
+            const chunk = extendedData.slice(
+              offset,
+              offset + tarConstants.BLOCK_SIZE,
+            );
+            blocks.push(generator.generateData(chunk));
+          }
+        }
+        const filePath =
+          entry.path.length <= tarConstants.STANDARD_PATH_SIZE
+            ? entry.path
+            : '';
+
+        if (entry.type === 'file') {
+          blocks.push(generator.generateFile(filePath, entry.stat));
+          const data = encoder.encode(entry.content);
+
+          // Push each data chunk
           for (
             let offset = 0;
             offset < data.byteLength;
             offset += tarConstants.BLOCK_SIZE
           ) {
-            blocks.push(
-              generator.generateData(
-                data.subarray(offset, offset + tarConstants.BLOCK_SIZE),
-              ),
-            );
+            const chunk = data.slice(offset, offset + tarConstants.BLOCK_SIZE);
+            blocks.push(generator.generateData(chunk));
           }
+        } else {
+          blocks.push(generator.generateDirectory(filePath, entry.stat));
         }
-
-        const filePath = entry.path.length <= 255 ? entry.path : '';
-
-        switch (entry.type) {
-          case 'file': {
-            // Generate the header
-            entry = entry as VirtualFile;
-            blocks.push(generator.generateFile(filePath, entry.stat));
-
-            // Generate the data
-            const encoder = new TextEncoder();
-            let content = entry.content;
-            while (content.length > 0) {
-              const dataChunk = content.slice(0, tarConstants.BLOCK_SIZE);
-              blocks.push(generator.generateData(encoder.encode(dataChunk)));
-              content = content.slice(tarConstants.BLOCK_SIZE);
-            }
-            break;
-          }
-
-          case 'directory': {
-            // Generate the header
-            entry = entry as VirtualDirectory;
-            blocks.push(generator.generateDirectory(filePath, entry.stat));
-
-            // Perform the same operation on all children
-            for (const file of entry.children) {
-              generateArchive(file);
-            }
-            break;
-          }
-
-          default:
-            tarUtils.never('Invalid type');
-        }
-      };
-
-      for (const entry of vfs) {
-        generateArchive(entry);
       }
+
       blocks.push(generator.generateEnd());
       blocks.push(generator.generateEnd());
 
@@ -82,10 +66,16 @@ describe('integration testing', () => {
       // the parsed virtual file system matches the input.
 
       const parser = new Parser();
-      const decoder = new TextDecoder();
-      const reconstructedVfs: Array<VirtualFile | VirtualDirectory> = [];
-      const pathStack: Map<string, any> = new Map();
-      let currentEntry: VirtualFile;
+      const reconstructedTree: Record<
+        string,
+        {
+          data?: Uint8Array;
+          stat: FileStat;
+        }
+      > = {};
+      let workingPath: string | undefined = undefined;
+      let workingStat: FileStat | undefined = undefined;
+      let workingData: Uint8Array = new Uint8Array();
       let extendedData: Uint8Array | undefined;
       let dataOffset = 0;
 
@@ -95,7 +85,6 @@ describe('integration testing', () => {
 
         switch (token.type) {
           case 'header': {
-            let parsedEntry: VirtualFile | VirtualDirectory | undefined;
             let extendedMetadata:
               | Partial<Record<MetadataKeywords, string>>
               | undefined;
@@ -103,75 +92,47 @@ describe('integration testing', () => {
               extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);
             }
 
-            const fullPath = extendedMetadata?.path?.trim()
+            const fullPath = extendedMetadata?.path
               ? extendedMetadata.path
               : token.filePath;
 
+            if (workingPath != null && workingStat != null) {
+              reconstructedTree[workingPath] = {
+                stat: workingStat,
+                data: workingData,
+              };
+              workingData = new Uint8Array();
+              workingPath = undefined;
+              workingStat = undefined;
+            }
+
+            const fileStat: FileStat = {
+              size: token.fileSize,
+              mtime: token.fileMtime,
+              mode: token.fileMode,
+              uid: token.ownerUid,
+              gid: token.ownerGid,
+              uname: token.ownerUserName,
+              gname: token.ownerGroupName,
+            };
+
             switch (token.fileType) {
               case 'file': {
-                parsedEntry = {
-                  type: 'file',
-                  path: fullPath,
-                  content: '',
-                  stat: {
-                    mode: token.fileMode,
-                    uid: token.ownerUid,
-                    gid: token.ownerGid,
-                    size: token.fileSize,
-                    mtime: token.fileMtime,
-                  },
-                };
+                workingPath = fullPath;
+                workingStat = fileStat;
                 break;
               }
               case 'directory': {
-                parsedEntry = {
-                  type: 'directory',
-                  path: fullPath,
-                  children: [],
-                  stat: {
-                    mode: token.fileMode,
-                    uid: token.ownerUid,
-                    gid: token.ownerGid,
-                    size: token.fileSize,
-                    mtime: token.fileMtime,
-                  },
-                };
+                reconstructedTree[fullPath] = { stat: fileStat };
                 break;
               }
-              case 'metadata': {
+              case 'extended': {
                 extendedData = new Uint8Array(token.fileSize);
                 extendedMetadata = {};
                 break;
               }
               default:
                 throw new Error('Invalid state');
-            }
-            // If parsed entry has not been reassigned, then it was a metadata
-            // header. Continue to fetch extended metadata.
-            if (parsedEntry == null) continue;
-
-            const parentPath = path.dirname(fullPath);
-
-            // If this entry is a directory, then it is pushed to the root of
-            // the reconstructed virtual file system and into a map at the same
-            // time. This allows us to add new children to the directory by
-            // looking up the path in a map rather than modifying the value in
-            // the reconstructed file system.
-
-            if (parentPath === '.') {
-              reconstructedVfs.push(parsedEntry);
-            } else {
-              // It is guaranteed that in a valid tar file, the parent will
-              // always exist.
-              const parent: VirtualDirectory = pathStack.get(parentPath + '/');
-              parent.children.push(parsedEntry);
-            }
-
-            if (parsedEntry.type === 'directory') {
-              pathStack.set(fullPath, parsedEntry);
-            } else {
-              // Type narrowing doesn't work well with manually specified types
-              currentEntry = parsedEntry as VirtualFile;
             }
 
             // If we were using the extended metadata for this header, reset it
@@ -184,19 +145,38 @@ describe('integration testing', () => {
 
           case 'data': {
             if (extendedData == null) {
-              // It is guaranteed that in a valid tar file, a data block will
-              // always come after a header block for a file.
-              currentEntry!['content'] += decoder.decode(token.data);
+              workingData = tarUtils.concatUint8Arrays(workingData, token.data);
             } else {
               extendedData.set(token.data, dataOffset);
               dataOffset += token.data.byteLength;
             }
             break;
           }
+
+          case 'end': {
+            // Finalise adding the last file into the tree
+            if (workingPath != null && workingStat != null) {
+              reconstructedTree[workingPath] = {
+                stat: workingStat,
+                data: workingData,
+              };
+              workingData = new Uint8Array();
+              workingPath = undefined;
+              workingStat = undefined;
+            }
+          }
         }
       }
 
-      expect(reconstructedVfs).toContainAllValues(vfs);
+      for (const entry of fileTree) {
+        expect(entry.stat).toMatchObject(reconstructedTree[entry.path].stat);
+        if (entry.type === 'file') {
+          const content = encoder.encode(entry.content);
+          expect(reconstructedTree[entry.path].data).toEqual(content);
+        } else {
+          expect(reconstructedTree[entry.path].data).toBeUndefined();
+        }
+      }
     },
   );
 });

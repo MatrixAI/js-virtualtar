@@ -1,6 +1,5 @@
 import type { TokenHeader, TokenData, TokenEnd } from './types';
 import { ParserState } from './types';
-import { HeaderOffset, HeaderSize, EntryType } from './types';
 import * as constants from './constants';
 import * as errors from './errors';
 import * as utils from './utils';
@@ -11,11 +10,7 @@ class Parser {
 
   protected parseHeader(array: Uint8Array): TokenHeader {
     // Validate header by checking checksum and magic string
-    const headerChecksum = utils.extractOctal(
-      array,
-      HeaderOffset.CHECKSUM,
-      HeaderSize.CHECKSUM,
-    );
+    const headerChecksum = utils.decodeChecksum(array);
     const calculatedChecksum = utils.calculateChecksum(array);
 
     if (headerChecksum !== calculatedChecksum) {
@@ -24,22 +19,14 @@ class Parser {
       );
     }
 
-    const ustarMagic = utils.extractString(
-      array,
-      HeaderOffset.USTAR_NAME,
-      HeaderSize.USTAR_NAME,
-    );
+    const ustarMagic = utils.decodeUstarMagic(array);
     if (ustarMagic !== constants.USTAR_NAME) {
       throw new errors.ErrorVirtualTarParserInvalidHeader(
         `Expected ustar magic to be '${constants.USTAR_NAME}', got '${ustarMagic}'`,
       );
     }
 
-    const ustarVersion = utils.extractString(
-      array,
-      HeaderOffset.USTAR_VERSION,
-      HeaderSize.USTAR_VERSION,
-    );
+    const ustarVersion = utils.decodeUstarVersion(array);
     if (ustarVersion !== constants.USTAR_VERSION) {
       throw new errors.ErrorVirtualTarParserInvalidHeader(
         `Expected ustar version to be '${constants.USTAR_VERSION}', got '${ustarVersion}'`,
@@ -48,69 +35,14 @@ class Parser {
 
     // Extract the relevant metadata from the header
     const filePath = utils.decodeFilePath(array);
-    const fileSize = utils.extractOctal(
-      array,
-      HeaderOffset.FILE_SIZE,
-      HeaderSize.FILE_SIZE,
-    );
-    const fileMtime = new Date(
-      utils.extractOctal(
-        array,
-        HeaderOffset.FILE_MTIME,
-        HeaderSize.FILE_MTIME,
-      ) * 1000,
-    );
-    const fileMode = utils.extractOctal(
-      array,
-      HeaderOffset.FILE_MODE,
-      HeaderSize.FILE_MODE,
-    );
-    const ownerGid = utils.extractOctal(
-      array,
-      HeaderOffset.OWNER_GID,
-      HeaderSize.OWNER_GID,
-    );
-    const ownerUid = utils.extractOctal(
-      array,
-      HeaderOffset.OWNER_UID,
-      HeaderSize.OWNER_UID,
-    );
-    const ownerName = utils.extractString(
-      array,
-      HeaderOffset.LINK_NAME,
-      HeaderSize.LINK_NAME,
-    );
-    const ownerGroupName = utils.extractString(
-      array,
-      HeaderOffset.OWNER_GROUPNAME,
-      HeaderSize.OWNER_GROUPNAME,
-    );
-    const ownerUserName = utils.extractString(
-      array,
-      HeaderOffset.OWNER_USERNAME,
-      HeaderSize.OWNER_USERNAME,
-    );
-    let fileType: 'file' | 'directory' | 'metadata';
-    const type = utils.extractString(
-      array,
-      HeaderOffset.TYPE_FLAG,
-      HeaderSize.TYPE_FLAG,
-    );
-    switch (type) {
-      case EntryType.FILE:
-        fileType = 'file';
-        break;
-      case EntryType.DIRECTORY:
-        fileType = 'directory';
-        break;
-      case EntryType.EXTENDED:
-        fileType = 'metadata';
-        break;
-      default:
-        throw new errors.ErrorVirtualTarParserInvalidHeader(
-          `Got invalid file type ${type}`,
-        );
-    }
+    const fileSize = utils.decodeFileSize(array);
+    const fileMtime = utils.decodeFileMtime(array);
+    const fileMode = utils.decodeFileMode(array);
+    const ownerUid = utils.decodeOwnerUid(array);
+    const ownerGid = utils.decodeOwnerGid(array);
+    const ownerUserName = utils.decodeOwnerUserName(array);
+    const ownerGroupName = utils.decodeOwnerGroupName(array);
+    const fileType = utils.decodeFileType(array);
 
     return {
       type: 'header',
@@ -121,7 +53,6 @@ class Parser {
       fileSize,
       ownerGid,
       ownerUid,
-      ownerName,
       ownerUserName,
       ownerGroupName,
     };
@@ -165,7 +96,7 @@ class Parser {
             this.state = ParserState.DATA;
             this.remainingBytes = headerToken.fileSize;
           }
-        } else if (headerToken.fileType === 'metadata') {
+        } else if (headerToken.fileType === 'extended') {
           // A header might not have any data but a metadata header will always
           // be followed by data.
           this.state = ParserState.DATA;
