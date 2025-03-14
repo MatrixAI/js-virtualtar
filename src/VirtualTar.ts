@@ -12,6 +12,11 @@ import * as constants from './constants';
 import * as errors from './errors';
 import * as utils from './utils';
 
+/**
+ * VirtualTar is a library used to create tar files using a virtual file system
+ * or a file tree. This library aims to provide a generator-parser pair to
+ * create tar files without the reliance on a file system.
+ */
 class VirtualTar {
   protected ended: boolean;
   protected state: VirtualTarState;
@@ -38,6 +43,39 @@ class VirtualTar {
   protected endCallback: () => void;
   protected callbacks: Array<Promise<void>>;
 
+  /**
+   * Create a new VirtualTar object initialized to a set mode. If the mode is
+   * set to generate an archive, then operations involving parsing an archive
+   * would be unavailable, and vice-versa.
+   *
+   * When parsing a tar file, optional callbacks are used to perform actions
+   * on events. The `onFile` callback is triggered when a file is parsed. The
+   * file data is queued up via an AsyncGenerator. The `onDirectory` callback
+   * functions similarly, but without the presence of data. The `onEnd` callback
+   * is triggered when the parser has generated an end token marking the archive
+   * as completely parsed.
+   *
+   * Note that the file and directory callbacks aren't awaited, and instead
+   * appended to an internal buffer of callbacks. Thus, {@link settled} can be
+   * used to wait for all the pending promises to be completed.
+   *
+   * Note that each callback is not blocking, so it is possible that two
+   * callbacks might try to modify the same resource.
+   *
+   * This method works slightly differently if an archive is being generated.
+   * The operation of adding files to the archive will be added to an internal
+   * buffer tracking all such 'operations', and the generated data can be
+   * extracted via {@link yieldChunks}. In this case, awaiting {@link settled}
+   * will wait until this internal queue of operations is empty.
+   *
+   * @param mode one of 'generate' or 'parse'
+   * @param onFile optional callback when a file has been parsed
+   * @param onDirectory optional callback when a directory has been parsed
+   * @param onEnd optional callback when the archive has ended
+   *
+   * @see {@link settled}
+   * @see {@link yieldChunks}
+   */
   constructor({
     mode,
     onFile,
@@ -106,6 +144,15 @@ class VirtualTar {
     }
   }
 
+  /**
+   * Queue up an operation to add a file to the archive.
+   *
+   * Only usable when generating an archive.
+   *
+   * @param filePath path of the file relative to the tar root
+   * @param stat the stats of the file
+   * @param data either a generator yielding data, a buffer, or a string
+   */
   public addFile(
     filePath: string,
     stat: FileStat,
@@ -220,6 +267,14 @@ class VirtualTar {
     });
   }
 
+  /**
+   * Queue up an operation to add a directory to the archive.
+   *
+   * Only usable when generating an archive.
+   *
+   * @param filePath path of the directory relative to the tar root
+   * @param stat the stats of the directory
+   */
   public addDirectory(filePath: string, stat?: FileStat): void {
     if (this.state !== VirtualTarState.GENERATOR) {
       throw new errors.ErrorVirtualTarInvalidState(
@@ -233,6 +288,12 @@ class VirtualTar {
     });
   }
 
+  /**
+   * Queue up an operation to finalize the archive by adding two null chunks
+   * indicating the end of archive.
+   *
+   * Only usable when generating an archive.
+   */
   public finalize(): void {
     if (this.state !== VirtualTarState.GENERATOR) {
       throw new errors.ErrorVirtualTarInvalidState(
@@ -247,6 +308,19 @@ class VirtualTar {
     this.ended = true;
   }
 
+  /**
+   * While generating, this waits for the internal queue of operations to empty
+   * before resolving. Note that if nothing is consuming the data in the queue,
+   * then this promise will keep waiting.
+   *
+   * While parsing, this waits for the internal queue of callbacks to resolve.
+   * Note that each callback is not blocking, so it is possible that two
+   * callbacks might try to modify the same resource.
+   *
+   * Only usable when generating an archive.
+   *
+   * @see {@link yieldChunks} to consume the operations and yield binary chunks
+   */
   public async settled(): Promise<void> {
     if (this.state === VirtualTarState.GENERATOR) {
       this.settledP = new Promise<void>((resolve) => {
@@ -258,6 +332,12 @@ class VirtualTar {
     }
   }
 
+  /**
+   * Returns a generator which yields 512-byte chunks as they are generated from
+   * the queued operations.
+   *
+   * Only usable when generating an archive.
+   */
   public async *yieldChunks(): AsyncGenerator<Uint8Array, void, void> {
     while (true) {
       const gen = this.queue.shift();
@@ -279,6 +359,21 @@ class VirtualTar {
     }
   }
 
+  /**
+   * Writes a chunk to the internal buffer. If the size of the internal buffer
+   * is larger than or equal to 512 bytes, then the chunks are consumed from
+   * the buffer until the buffer falls below this limit.
+   *
+   * Upon yielding a file or directory token, the relevant data is passed along
+   * to the relevant callback. Note tha the callbacks are queued, so call
+   * {@link settle} to wait for all the pending callbacks to resolve. The end
+   * callback is synchronous, so it is executed immeidately instead of being
+   * queued.
+   *
+   * Only usable when parsing an archive.
+   *
+   * @param chunk a chunk of the (or the entire) binary tar file
+   */
   public write(chunk: Uint8Array): void {
     if (this.state !== VirtualTarState.PARSER) {
       throw new errors.ErrorVirtualTarInvalidState(
@@ -401,8 +496,12 @@ class VirtualTar {
           this.workingMetadata = utils.decodeExtendedHeader(data);
         }
       } else {
-        // Token is of type end
-        this.endCallback();
+        // Token is of type end. Clean up the pending promises then trigger the
+        // end callback.
+        (async () => {
+          await this.settled();
+          this.endCallback();
+        })();
       }
     }
   }
