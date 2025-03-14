@@ -66,6 +66,24 @@ import * as utils from './utils';
  * storing the actual value. These are the currently supported keys for
  * the extended metadata:
  *  - path (corresponding to file path if it is longer than 255 characters)
+ *
+ * The high-level diagram of a tar file looks like the following.
+ *  - [File header]
+ *  - [Data]
+ *  - [Data]
+ *  - [Extended header]
+ *  - [Data]
+ *  - [File header]
+ *  - [Data]
+ *  - [Data]
+ *  - [Directory header]
+ *  - [Null chunk]
+ *  - [Null chunk]
+ *
+ * A file header preceedes file data. A directory header has no data. An
+ * extended header is the same as a file header, but it has differnet metadata
+ * than one, and must be immediately followed by either a file or a directory
+ * header. Two null chunks are always at the end, marking the end of archive.
  */
 class Generator {
   protected state: GeneratorState = GeneratorState.HEADER;
