@@ -126,7 +126,7 @@ class VirtualTarParser {
     ) => Promise<void> | void;
     onDirectory?: (header: ParsedDirectory) => Promise<void> | void;
     onEnd?: () => Promise<void> | void;
-  }) {
+  } = {}) {
     this.fileCallback = onFile ?? (() => Promise.resolve());
     this.directoryCallback = onDirectory ?? (() => Promise.resolve());
     this.endCallback = onEnd ?? (() => {});
@@ -313,9 +313,10 @@ class VirtualTarParser {
           } else {
             if (this.resolveDataP != null) {
               this.resolveDataP(token);
-            } else {
-              utils.never('Callback is not awaiting the next data token');
             }
+            // If the resolve callback is undefined, then nothing is waiting for
+            // the data. We can ignore sending over the data and continue as
+            // usual.
           }
           break;
         }
