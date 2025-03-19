@@ -84,10 +84,10 @@ class Parser {
   protected state: ParserState = ParserState.HEADER;
   protected remainingBytes = 0;
 
-  protected parseHeader(array: Uint8Array): TokenHeader {
+  protected parseHeader(header: Uint8Array): TokenHeader {
     // Validate header by checking checksum and magic string
-    const headerChecksum = utils.decodeChecksum(array);
-    const calculatedChecksum = utils.calculateChecksum(array);
+    const headerChecksum = utils.decodeChecksum(header);
+    const calculatedChecksum = utils.calculateChecksum(header);
 
     if (headerChecksum !== calculatedChecksum) {
       throw new errors.ErrorVirtualTarParserInvalidHeader(
@@ -95,14 +95,14 @@ class Parser {
       );
     }
 
-    const ustarMagic = utils.decodeUstarMagic(array);
+    const ustarMagic = utils.decodeUstarMagic(header);
     if (ustarMagic !== constants.USTAR_NAME) {
       throw new errors.ErrorVirtualTarParserInvalidHeader(
         `Expected ustar magic to be '${constants.USTAR_NAME}', got '${ustarMagic}'`,
       );
     }
 
-    const ustarVersion = utils.decodeUstarVersion(array);
+    const ustarVersion = utils.decodeUstarVersion(header);
     if (ustarVersion !== constants.USTAR_VERSION) {
       throw new errors.ErrorVirtualTarParserInvalidHeader(
         `Expected ustar version to be '${constants.USTAR_VERSION}', got '${ustarVersion}'`,
@@ -110,15 +110,15 @@ class Parser {
     }
 
     // Extract the relevant metadata from the header
-    const filePath = utils.decodeFilePath(array);
-    const fileSize = utils.decodeFileSize(array);
-    const fileMtime = utils.decodeFileMtime(array);
-    const fileMode = utils.decodeFileMode(array);
-    const ownerUid = utils.decodeOwnerUid(array);
-    const ownerGid = utils.decodeOwnerGid(array);
-    const ownerUserName = utils.decodeOwnerUserName(array);
-    const ownerGroupName = utils.decodeOwnerGroupName(array);
-    const fileType = utils.decodeFileType(array);
+    const filePath = utils.decodeFilePath(header);
+    const fileMode = utils.decodeFileMode(header);
+    const ownerUid = utils.decodeOwnerUid(header);
+    const ownerGid = utils.decodeOwnerGid(header);
+    const fileSize = utils.decodeFileSize(header);
+    const fileMtime = utils.decodeFileMtime(header);
+    const fileType = utils.decodeFileType(header);
+    const ownerUserName = utils.decodeOwnerUserName(header);
+    const ownerGroupName = utils.decodeOwnerGroupName(header);
 
     return {
       type: 'header',
@@ -212,6 +212,12 @@ class Parser {
           this.state = ParserState.DATA;
           this.remainingBytes = headerToken.fileSize;
         }
+
+        // Only the file header and the extended header can potentially have
+        // additional data blocks following them. This needs to be tracked in
+        // the parser state. Directory headers don't have this issue and doesn't
+        // need any additional processing.
+
         return headerToken;
       }
 
@@ -225,7 +231,7 @@ class Parser {
       case ParserState.NULL: {
         if (utils.isNullBlock(data)) {
           this.state = ParserState.ENDED;
-          return { type: 'end' } as TokenEnd;
+          return { type: 'end' };
         } else {
           throw new errors.ErrorVirtualTarParserEndOfArchive(
             'Received garbage data after first end marker',
@@ -234,7 +240,7 @@ class Parser {
       }
 
       default:
-        utils.never('Unexpected state');
+        utils.never(`Unexpected state: ${this.state}`);
     }
   }
 }

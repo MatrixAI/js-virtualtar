@@ -7,7 +7,7 @@ import fc from 'fast-check';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
 import Parser from '@/Parser';
-import { HeaderOffset, ParserState } from '@/types';
+import { ParserState } from '@/types';
 import * as tarErrors from '@/errors';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
@@ -90,7 +90,7 @@ describe('parsing archive blocks', () => {
   )(
     'should fail to parse header with an invalid checksum',
     ({ headers }, checksum) => {
-      headers[0].set(checksum, HeaderOffset.CHECKSUM);
+      headers[0].set(checksum, tarConstants.HEADER_OFFSET.CHECKSUM);
       const parser = new Parser();
       expect(() => parser.write(headers[0])).toThrowError(
         tarErrors.ErrorVirtualTarParserInvalidHeader,

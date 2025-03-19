@@ -1,5 +1,5 @@
 import type { FileType, FileStat } from './types';
-import { GeneratorState, HeaderSize } from './types';
+import { GeneratorState } from './types';
 import * as constants from './constants';
 import * as errors from './errors';
 import * as utils from './utils';
@@ -106,18 +106,21 @@ class Generator {
       );
     }
 
-    if (stat?.uname != null && stat?.uname.length > HeaderSize.OWNER_USERNAME) {
+    if (
+      stat?.uname != null &&
+      stat?.uname.length > constants.HEADER_SIZE.OWNER_USERNAME
+    ) {
       throw new errors.ErrorVirtualTarGeneratorInvalidStat(
-        `The username must not exceed ${HeaderSize.OWNER_USERNAME} bytes`,
+        `The username must not exceed ${constants.HEADER_SIZE.OWNER_USERNAME} bytes`,
       );
     }
 
     if (
       stat?.gname != null &&
-      stat?.gname.length > HeaderSize.OWNER_GROUPNAME
+      stat?.gname.length > constants.HEADER_SIZE.OWNER_GROUPNAME
     ) {
       throw new errors.ErrorVirtualTarGeneratorInvalidStat(
-        `The groupname must not exceed ${HeaderSize.OWNER_GROUPNAME} bytes`,
+        `The groupname must not exceed ${constants.HEADER_SIZE.OWNER_GROUPNAME} bytes`,
       );
     }
 
@@ -129,16 +132,16 @@ class Generator {
     }
 
     // Write the relevant sections in the header with the provided data
-    utils.writeUstarMagic(header);
-    utils.writeFileType(header, type);
     utils.writeFilePath(header, filePath);
     utils.writeFileMode(header, stat.mode);
     utils.writeOwnerUid(header, stat.uid);
     utils.writeOwnerGid(header, stat.gid);
-    utils.writeOwnerUserName(header, stat.uname);
-    utils.writeOwnerGroupName(header, stat.gname);
     utils.writeFileSize(header, stat.size);
     utils.writeFileMtime(header, stat.mtime);
+    utils.writeFileType(header, type);
+    utils.writeUstarMagic(header);
+    utils.writeOwnerUserName(header, stat.uname);
+    utils.writeOwnerGroupName(header, stat.gname);
 
     // The checksum can only be calculated once the entire header has been
     // written. This is why the checksum is calculated and written at the end.
@@ -307,10 +310,10 @@ class Generator {
     switch (this.state) {
       case GeneratorState.HEADER:
         this.state = GeneratorState.NULL;
-        break;
+        return new Uint8Array(constants.BLOCK_SIZE);
       case GeneratorState.NULL:
         this.state = GeneratorState.ENDED;
-        break;
+        return new Uint8Array(constants.BLOCK_SIZE);
       default:
         throw new errors.ErrorVirtualTarGeneratorInvalidState(
           `Expected state ${GeneratorState[GeneratorState.HEADER]} or ${
@@ -318,7 +321,6 @@ class Generator {
           } but got ${GeneratorState[this.state]}`,
         );
     }
-    return new Uint8Array(constants.BLOCK_SIZE);
   }
 }
 

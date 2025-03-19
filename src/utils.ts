@@ -1,5 +1,5 @@
-import type { FileType } from './types';
-import { EntryType, MetadataKeywords, HeaderOffset, HeaderSize } from './types';
+import type { FileType, MetadataKeywords } from './types';
+import { EntryType } from './types';
 import * as errors from './errors';
 import * as constants from './constants';
 
@@ -25,11 +25,11 @@ function pad(
 
 function calculateChecksum(array: Uint8Array): number {
   return array.reduce((sum, byte, index) => {
-    // Checksum placeholder is ASCII space, so assume checksum character is
-    // space while computing it.
+    // Checksum placeholder is ASCII space, so assume checksum section is filled
+    // with spaces during computation.
     if (
-      index >= HeaderOffset.CHECKSUM &&
-      index < HeaderOffset.CHECKSUM + HeaderSize.CHECKSUM
+      index >= constants.HEADER_OFFSET.CHECKSUM &&
+      index < constants.HEADER_OFFSET.CHECKSUM + constants.HEADER_SIZE.CHECKSUM
     ) {
       return sum + 32;
     }
@@ -38,7 +38,7 @@ function calculateChecksum(array: Uint8Array): number {
 }
 
 function dateToTarTime(date: Date): number {
-  return Math.round(date.getTime() / 1000);
+  return Math.floor(date.getTime() / 1000);
 }
 
 function tarTimeToDate(time: number): Date {
@@ -192,17 +192,9 @@ function decodeExtendedHeader(
     const key = line.substring(0, entrySeparatorIndex);
     const _value = line.substring(entrySeparatorIndex + 1);
 
-    if (!Object.values(MetadataKeywords).includes(key as MetadataKeywords)) {
-      throw new Error('TMP key doesnt exist');
-    }
-
     // Remove the trailing newline
     const value = _value.substring(0, _value.length - 1);
-    switch (key as MetadataKeywords) {
-      case MetadataKeywords.FILE_PATH: {
-        data[MetadataKeywords.FILE_PATH] = value;
-      }
-    }
+    data[key] = value;
 
     offset += size;
     remainingBytes -= size;
@@ -229,35 +221,36 @@ function writeFilePath(header: Uint8Array, filePath: string): void {
   // file name to it.
 
   const filePathSuffix = filePath
-    .slice(0, HeaderSize.FILE_NAME)
-    .padEnd(HeaderSize.FILE_NAME, '\0');
+    .slice(0, constants.HEADER_SIZE.FILE_NAME)
+    .padEnd(constants.HEADER_SIZE.FILE_NAME, '\0');
 
-  if (filePath.length < HeaderSize.FILE_NAME) {
+  if (filePath.length < constants.HEADER_SIZE.FILE_NAME) {
     writeBytesToArray(
       header,
       filePathSuffix,
-      HeaderOffset.FILE_NAME,
-      HeaderSize.FILE_NAME,
+      constants.HEADER_OFFSET.FILE_NAME,
+      constants.HEADER_SIZE.FILE_NAME,
     );
   } else {
     const filePathPrefix = filePath
       .slice(
-        HeaderSize.FILE_NAME,
-        HeaderSize.FILE_NAME + HeaderSize.FILE_NAME_PREFIX,
+        constants.HEADER_SIZE.FILE_NAME,
+        constants.HEADER_SIZE.FILE_NAME +
+          constants.HEADER_SIZE.FILE_NAME_PREFIX,
       )
-      .padEnd(HeaderSize.FILE_NAME_PREFIX, '\0');
+      .padEnd(constants.HEADER_SIZE.FILE_NAME_PREFIX, '\0');
 
     writeBytesToArray(
       header,
       filePathPrefix,
-      HeaderOffset.FILE_NAME,
-      HeaderSize.FILE_NAME,
+      constants.HEADER_OFFSET.FILE_NAME,
+      constants.HEADER_SIZE.FILE_NAME,
     );
     writeBytesToArray(
       header,
       filePathSuffix,
-      HeaderOffset.FILE_NAME_PREFIX,
-      HeaderSize.FILE_NAME_PREFIX,
+      constants.HEADER_OFFSET.FILE_NAME_PREFIX,
+      constants.HEADER_SIZE.FILE_NAME_PREFIX,
     );
   }
 }
@@ -267,27 +260,27 @@ function writeFileMode(header: Uint8Array, mode?: number): void {
   // stored in an octal number format.
   writeBytesToArray(
     header,
-    pad(mode ?? '', HeaderSize.FILE_MODE, '0', '\0'),
-    HeaderOffset.FILE_MODE,
-    HeaderSize.FILE_MODE,
+    pad(mode ?? '', constants.HEADER_SIZE.FILE_MODE, '0', '\0'),
+    constants.HEADER_OFFSET.FILE_MODE,
+    constants.HEADER_SIZE.FILE_MODE,
   );
 }
 
 function writeOwnerUid(header: Uint8Array, uid?: number): void {
   writeBytesToArray(
     header,
-    pad(uid ?? '', HeaderSize.OWNER_UID, '0', '\0'),
-    HeaderOffset.OWNER_UID,
-    HeaderSize.OWNER_UID,
+    pad(uid ?? '', constants.HEADER_SIZE.OWNER_UID, '0', '\0'),
+    constants.HEADER_OFFSET.OWNER_UID,
+    constants.HEADER_SIZE.OWNER_UID,
   );
 }
 
 function writeOwnerGid(header: Uint8Array, gid?: number): void {
   writeBytesToArray(
     header,
-    pad(gid ?? '', HeaderSize.OWNER_GID, '0', '\0'),
-    HeaderOffset.OWNER_GID,
-    HeaderSize.OWNER_GID,
+    pad(gid ?? '', constants.HEADER_SIZE.OWNER_GID, '0', '\0'),
+    constants.HEADER_OFFSET.OWNER_GID,
+    constants.HEADER_SIZE.OWNER_GID,
   );
 }
 
@@ -296,9 +289,9 @@ function writeFileSize(header: Uint8Array, size?: number): void {
   // directories, and it must be set for files.
   writeBytesToArray(
     header,
-    pad(size ?? '', HeaderSize.FILE_SIZE, '0', '\0'),
-    HeaderOffset.FILE_SIZE,
-    HeaderSize.FILE_SIZE,
+    pad(size ?? '', constants.HEADER_SIZE.FILE_SIZE, '0', '\0'),
+    constants.HEADER_OFFSET.FILE_SIZE,
+    constants.HEADER_SIZE.FILE_SIZE,
   );
 }
 
@@ -309,9 +302,9 @@ function writeFileMtime(header: Uint8Array, mtime?: Date): void {
   const date = mtime != null ? dateToTarTime(mtime) : '';
   writeBytesToArray(
     header,
-    pad(date, HeaderSize.FILE_MTIME, '0', '\0'),
-    HeaderOffset.FILE_MTIME,
-    HeaderSize.FILE_MTIME,
+    pad(date, constants.HEADER_SIZE.FILE_MTIME, '0', '\0'),
+    constants.HEADER_OFFSET.FILE_MTIME,
+    constants.HEADER_SIZE.FILE_MTIME,
   );
 }
 
@@ -336,9 +329,9 @@ function writeFileType(
   }
   writeBytesToArray(
     header,
-    pad(entryType, HeaderSize.TYPE_FLAG, '0', '\0'),
-    HeaderOffset.TYPE_FLAG,
-    HeaderSize.TYPE_FLAG,
+    pad(entryType, constants.HEADER_SIZE.TYPE_FLAG, '0', '\0'),
+    constants.HEADER_OFFSET.TYPE_FLAG,
+    constants.HEADER_SIZE.TYPE_FLAG,
   );
 }
 
@@ -346,9 +339,9 @@ function writeOwnerUserName(header: Uint8Array, username?: string): void {
   const uname = username ?? '';
   writeBytesToArray(
     header,
-    uname.padEnd(HeaderSize.OWNER_USERNAME, '\0'),
-    HeaderOffset.OWNER_USERNAME,
-    HeaderSize.OWNER_USERNAME,
+    uname.padEnd(constants.HEADER_SIZE.OWNER_USERNAME, '\0'),
+    constants.HEADER_OFFSET.OWNER_USERNAME,
+    constants.HEADER_SIZE.OWNER_USERNAME,
   );
 }
 
@@ -356,9 +349,9 @@ function writeOwnerGroupName(header: Uint8Array, groupname?: string): void {
   const gname = groupname ?? '';
   writeBytesToArray(
     header,
-    gname.padEnd(HeaderSize.OWNER_GROUPNAME, '\0'),
-    HeaderOffset.OWNER_GROUPNAME,
-    HeaderSize.OWNER_GROUPNAME,
+    gname.padEnd(constants.HEADER_SIZE.OWNER_GROUPNAME, '\0'),
+    constants.HEADER_OFFSET.OWNER_GROUPNAME,
+    constants.HEADER_SIZE.OWNER_GROUPNAME,
   );
 }
 
@@ -368,39 +361,39 @@ function writeUstarMagic(header: Uint8Array): void {
   writeBytesToArray(
     header,
     constants.USTAR_NAME,
-    HeaderOffset.USTAR_NAME,
-    HeaderSize.USTAR_NAME,
+    constants.HEADER_OFFSET.USTAR_NAME,
+    constants.HEADER_SIZE.USTAR_NAME,
   );
 
   // This chunk stores the version of USTAR, which is '00' in this case.
   writeBytesToArray(
     header,
     constants.USTAR_VERSION,
-    HeaderOffset.USTAR_VERSION,
-    HeaderSize.USTAR_VERSION,
+    constants.HEADER_OFFSET.USTAR_VERSION,
+    constants.HEADER_SIZE.USTAR_VERSION,
   );
 }
 
 function writeChecksum(header: Uint8Array, checksum: number): void {
   writeBytesToArray(
     header,
-    pad(checksum, HeaderSize.CHECKSUM, '0', '\0'),
-    HeaderOffset.CHECKSUM,
-    HeaderSize.CHECKSUM,
+    pad(checksum, constants.HEADER_SIZE.CHECKSUM, '0', '\0'),
+    constants.HEADER_OFFSET.CHECKSUM,
+    constants.HEADER_SIZE.CHECKSUM,
   );
 }
 
 function decodeFilePath(array: Uint8Array): string {
   const fileNamePrefix = extractString(
     array,
-    HeaderOffset.FILE_NAME_PREFIX,
-    HeaderSize.FILE_NAME_PREFIX,
+    constants.HEADER_OFFSET.FILE_NAME_PREFIX,
+    constants.HEADER_SIZE.FILE_NAME_PREFIX,
   );
 
   const fileNameSuffix = extractString(
     array,
-    HeaderOffset.FILE_NAME,
-    HeaderSize.FILE_NAME,
+    constants.HEADER_OFFSET.FILE_NAME,
+    constants.HEADER_SIZE.FILE_NAME,
   );
 
   if (fileNamePrefix !== '') {
@@ -411,48 +404,68 @@ function decodeFilePath(array: Uint8Array): string {
 }
 
 function decodeFileMode(array: Uint8Array): number {
-  return extractOctal(array, HeaderOffset.FILE_MODE, HeaderSize.FILE_MODE);
+  return extractOctal(
+    array,
+    constants.HEADER_OFFSET.FILE_MODE,
+    constants.HEADER_SIZE.FILE_MODE,
+  );
 }
 
 function decodeOwnerUid(array: Uint8Array): number {
-  return extractOctal(array, HeaderOffset.OWNER_UID, HeaderSize.OWNER_UID);
+  return extractOctal(
+    array,
+    constants.HEADER_OFFSET.OWNER_UID,
+    constants.HEADER_SIZE.OWNER_UID,
+  );
 }
 
 function decodeOwnerGid(array: Uint8Array): number {
-  return extractOctal(array, HeaderOffset.OWNER_GID, HeaderSize.OWNER_GID);
+  return extractOctal(
+    array,
+    constants.HEADER_OFFSET.OWNER_GID,
+    constants.HEADER_SIZE.OWNER_GID,
+  );
 }
 
 function decodeFileSize(array: Uint8Array): number {
-  return extractOctal(array, HeaderOffset.FILE_SIZE, HeaderSize.FILE_SIZE);
+  return extractOctal(
+    array,
+    constants.HEADER_OFFSET.FILE_SIZE,
+    constants.HEADER_SIZE.FILE_SIZE,
+  );
 }
 
 function decodeFileMtime(array: Uint8Array): Date {
   return tarTimeToDate(
-    extractOctal(array, HeaderOffset.FILE_MTIME, HeaderSize.FILE_MTIME),
+    extractOctal(
+      array,
+      constants.HEADER_OFFSET.FILE_MTIME,
+      constants.HEADER_SIZE.FILE_MTIME,
+    ),
   );
 }
 
 function decodeOwnerUserName(array: Uint8Array): string {
   return extractString(
     array,
-    HeaderOffset.OWNER_USERNAME,
-    HeaderSize.OWNER_USERNAME,
+    constants.HEADER_OFFSET.OWNER_USERNAME,
+    constants.HEADER_SIZE.OWNER_USERNAME,
   );
 }
 
 function decodeOwnerGroupName(array: Uint8Array): string {
   return extractString(
     array,
-    HeaderOffset.OWNER_GROUPNAME,
-    HeaderSize.OWNER_GROUPNAME,
+    constants.HEADER_OFFSET.OWNER_GROUPNAME,
+    constants.HEADER_SIZE.OWNER_GROUPNAME,
   );
 }
 
-function decodeFileType(array): FileType {
+function decodeFileType(array: Uint8Array): FileType {
   const type = extractString(
     array,
-    HeaderOffset.TYPE_FLAG,
-    HeaderSize.TYPE_FLAG,
+    constants.HEADER_OFFSET.TYPE_FLAG,
+    constants.HEADER_SIZE.TYPE_FLAG,
   );
   switch (type) {
     case EntryType.FILE:
@@ -469,19 +482,27 @@ function decodeFileType(array): FileType {
 }
 
 function decodeUstarMagic(array: Uint8Array): string {
-  return extractString(array, HeaderOffset.USTAR_NAME, HeaderSize.USTAR_NAME);
+  return extractString(
+    array,
+    constants.HEADER_OFFSET.USTAR_NAME,
+    constants.HEADER_SIZE.USTAR_NAME,
+  );
 }
 
 function decodeUstarVersion(array: Uint8Array): string {
   return extractString(
     array,
-    HeaderOffset.USTAR_VERSION,
-    HeaderSize.USTAR_VERSION,
+    constants.HEADER_OFFSET.USTAR_VERSION,
+    constants.HEADER_SIZE.USTAR_VERSION,
   );
 }
 
 function decodeChecksum(array: Uint8Array): number {
-  return extractOctal(array, HeaderOffset.CHECKSUM, HeaderSize.CHECKSUM);
+  return extractOctal(
+    array,
+    constants.HEADER_OFFSET.CHECKSUM,
+    constants.HEADER_SIZE.CHECKSUM,
+  );
 }
 
 export {

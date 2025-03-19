@@ -1,14 +1,14 @@
 import type { FileStat, MetadataKeywords } from '@/types';
+import type { VirtualFile, VirtualDirectory } from './types';
 import { test } from '@fast-check/jest';
-import Generator from '@/Generator';
-import Parser from '@/Parser';
+import { Generator, Parser, VirtualTarGenerator, VirtualTarParser } from '@';
 import * as tarUtils from '@/utils';
 import * as tarConstants from '@/constants';
 import * as utils from './utils';
 
 describe('integration testing', () => {
   test.prop([utils.fileTreeArb()])(
-    'should archive and unarchive a virtual file system',
+    'should archive and unarchive a file tree using generator-parser pair',
     (fileTree) => {
       const generator = new Generator();
       const blocks: Array<Uint8Array> = [];
@@ -177,6 +177,58 @@ describe('integration testing', () => {
           expect(reconstructedTree[entry.path].data).toBeUndefined();
         }
       }
+    },
+  );
+
+  test.prop([utils.fileTreeArb()])(
+    'should archive and unarchive a file tree using virtualtar',
+    async (fileTree) => {
+      const generator = new VirtualTarGenerator();
+
+      for (const entry of fileTree) {
+        if (entry.type === 'file') {
+          generator.addFile(entry.path, entry.stat, entry.content);
+        } else {
+          generator.addDirectory(entry.path, entry.stat);
+        }
+      }
+      generator.finalize();
+
+      const archive = generator.yieldChunks();
+      const entries: Array<VirtualFile | VirtualDirectory> = [];
+
+      const parser = new VirtualTarParser({
+        onFile: async (header, data) => {
+          const content: Array<Uint8Array> = [];
+          for await (const chunk of data()) {
+            content.push(chunk);
+          }
+          const fileContent = Buffer.concat(content).toString();
+          entries.push({
+            type: 'file',
+            path: header.path,
+            stat: header.stat,
+            content: fileContent,
+          });
+        },
+        onDirectory: async (header) => {
+          entries.push({
+            type: 'directory',
+            path: header.path,
+            stat: header.stat,
+          });
+        },
+      });
+
+      for await (const chunk of archive) {
+        await parser.write(chunk);
+      }
+
+      await parser.settled();
+
+      expect(utils.deepSort(entries)).toContainAllValues(
+        utils.deepSort(fileTree),
+      );
     },
   );
 });
