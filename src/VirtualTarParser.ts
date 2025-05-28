@@ -154,7 +154,7 @@ class VirtualTarParser {
    *
    * Upon yielding a file or directory token, the relevant data is passed along
    * to the relevant callback. Note tha the callbacks are queued, so call
-   * {@link settle} to wait for all the pending callbacks to resolve. The end
+   * {@link settled} to wait for all the pending callbacks to resolve. The end
    * callback is synchronous, so it is executed immeidately instead of being
    * queued.
    *

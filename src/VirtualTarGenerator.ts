@@ -12,11 +12,11 @@ import * as utils from './utils';
  *
  * The operation of adding files to the archive will be added to an internal
  * buffer tracking all such 'operations', and the generated data can be
- * extracted via {@link yieldchunks}. In this case, awaiting {@link settled}
+ * extracted via {@link yieldChunks}. In this case, awaiting {@link settled}
  * will wait until this internal queue of operations is empty.
  *
  * @see {@link settled}
- * @see {@link yieldchunks}
+ * @see {@link yieldChunks}
  */
 class VirtualTarGenerator {
   /**
