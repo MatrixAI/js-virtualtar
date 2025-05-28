@@ -228,7 +228,7 @@ describe('testing against tar', () => {
         // Write the archive to disk
         const archivePath = path.join(tempDir, 'archive.tar');
         const fd = await fs.promises.open(archivePath, 'w');
-        for await (const chunk of blocks) {
+        for (const chunk of blocks) {
           await fd.write(chunk);
         }
         await fd.close();

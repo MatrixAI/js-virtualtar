@@ -211,7 +211,7 @@ class VirtualTarParser {
               this.pendingCallbacks.add(p);
 
               // Remove the callback from the set after the promise settles
-              p.finally(() => {
+              void p.finally(() => {
                 this.pendingCallbacks.delete(p);
                 // If we are waiting on settling the callbacks, then check is the
                 // callbacks array is empty. If it is, then we have resolved all
@@ -264,7 +264,7 @@ class VirtualTarParser {
               this.pendingCallbacks.add(p);
 
               // Remove the callback from the set after the promise settles
-              p.finally(() => {
+              void p.finally(() => {
                 this.pendingCallbacks.delete(p);
                 // If we are waiting on settling the callbacks, then check is the
                 // callbacks array is empty. If it is, then we have resolved all
