@@ -1,6 +1,8 @@
 # js-virtualtar
 
-VirtualTar is a library used to create tar files using a virtual file system or a file tree. This library aims to provide a platform-agnostic generator-parser pair to create tar files without the reliance on a file system.
+VirtualTar is a library used to create tar files using a virtual file system or
+a file tree. This library aims to provide a platform-agnostic generator-parser
+pair to create tar files without the reliance on a file system.
 
 ## Installation
 
@@ -52,4 +54,5 @@ git push --tags
 
 ## License
 
-`js-virtualtar` is licensed under Apache-2.0, you may read the terms of the license [here](LICENSE).
+`js-virtualtar` is licensed under Apache-2.0, you may read the terms of the
+license [here](LICENSE).
