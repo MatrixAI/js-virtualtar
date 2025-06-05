@@ -1,7 +1,7 @@
-import type { FileStat } from './types';
-import Generator from './Generator';
-import * as constants from './constants';
-import * as utils from './utils';
+import type { FileStat } from './types.js';
+import Generator from './Generator.js';
+import * as constants from './constants.js';
+import * as utils from './utils.js';
 
 /**
  * VirtualTar is a library used to create tar files using a virtual file system

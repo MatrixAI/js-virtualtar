@@ -4,12 +4,12 @@ import path from 'path';
 import fc from 'fast-check';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import Generator from '@/Generator';
-import { EntryType, GeneratorState } from '@/types';
-import * as tarConstants from '@/constants';
-import * as tarErrors from '@/errors';
-import * as tarUtils from '@/utils';
-import * as utils from './utils';
+import Generator from '@/Generator.js';
+import { EntryType, GeneratorState } from '@/types.js';
+import * as tarConstants from '@/constants.js';
+import * as tarErrors from '@/errors.js';
+import * as tarUtils from '@/utils.js';
+import * as utils from './utils/index.js';
 
 describe('generating archive', () => {
   test.prop([utils.fileArb()])(

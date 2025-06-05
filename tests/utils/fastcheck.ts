@@ -1,8 +1,8 @@
-import type { VirtualFile, VirtualDirectory } from '../types';
-import type { FileStat } from '@/types';
+import type { VirtualFile, VirtualDirectory } from '../types.js';
+import type { FileStat } from '@/types.js';
 import fc from 'fast-check';
-import * as tarConstants from '@/constants';
-import * as tarUtils from '@/utils';
+import * as tarConstants from '@/constants.js';
+import * as tarUtils from '@/utils.js';
 
 /**
  * Creates an arbitrary to produce valid (and common) unix file modes. Note that

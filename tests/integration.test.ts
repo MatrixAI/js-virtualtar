@@ -1,10 +1,10 @@
-import type { FileStat, MetadataKeywords } from '@/types';
-import type { VirtualFile, VirtualDirectory } from './types';
+import type { FileStat, MetadataKeywords } from '@/types.js';
+import type { VirtualFile, VirtualDirectory } from './types.js';
 import { test } from '@fast-check/jest';
-import { Generator, Parser, VirtualTarGenerator, VirtualTarParser } from '@';
-import * as tarUtils from '@/utils';
-import * as tarConstants from '@/constants';
-import * as utils from './utils';
+import { Generator, Parser, VirtualTarGenerator, VirtualTarParser } from '@/index.js';
+import * as tarUtils from '@/utils.js';
+import * as tarConstants from '@/constants.js';
+import * as utils from './utils/index.js';
 
 describe('integration testing', () => {
   test.prop([utils.fileTreeArb()])(

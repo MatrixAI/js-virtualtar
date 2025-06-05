@@ -1,4 +1,4 @@
-import * as tarUtils from '@/utils';
+import * as tarUtils from '@/utils.js';
 
 const deepSort = (obj: unknown) => {
   if (Array.isArray(obj)) {

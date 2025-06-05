@@ -3,8 +3,8 @@ import path from 'path';
 import os from 'os';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import { VirtualTarGenerator } from '@';
-import * as tarConstants from '@/constants';
+import { VirtualTarGenerator } from '../src/index.js';
+import * as tarConstants from '@/constants.js';
 
 describe('generator', () => {
   let tempDir;

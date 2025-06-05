@@ -1,17 +1,17 @@
-import type { VirtualFile, VirtualDirectory } from './types';
-import type { MetadataKeywords } from '@/types';
+import type { VirtualFile, VirtualDirectory } from './types.js';
+import type { MetadataKeywords } from '@/types.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import fc from 'fast-check';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import Parser from '@/Parser';
-import { ParserState } from '@/types';
-import * as tarErrors from '@/errors';
-import * as tarUtils from '@/utils';
-import * as tarConstants from '@/constants';
-import * as utils from './utils';
+import Parser from '@/Parser.js';
+import { ParserState } from '@/types.js';
+import * as tarErrors from '@/errors.js';
+import * as tarUtils from '@/utils.js';
+import * as tarConstants from '@/constants.js';
+import * as utils from './utils/index.js';
 
 describe('parsing archive blocks', () => {
   test.prop([utils.tarEntryArb()])(

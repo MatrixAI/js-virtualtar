@@ -1,7 +1,7 @@
-import type { FileType, MetadataKeywords } from './types';
-import { EntryType } from './types';
-import * as errors from './errors';
-import * as constants from './constants';
+import type { FileType, MetadataKeywords } from './types.js';
+import { EntryType } from './types.js';
+import * as errors from './errors.js';
+import * as constants from './constants.js';
 
 // Text decoder for text parsing utilities
 const decoder = new TextDecoder('ascii');
