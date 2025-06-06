@@ -12,6 +12,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
+    "isolatedModules": true,
     "moduleResolution": "NodeNext",
     "module": "ESNext",
     "target": "ES2022",
@@ -30,9 +31,4 @@
     "./scripts/**/*",
     "./benches/**/*"
   ],
-  "ts-node": {
-    "require": ["tsconfig-paths/register"],
-    "transpileOnly": true,
-    "swc": true
-  }
 }
