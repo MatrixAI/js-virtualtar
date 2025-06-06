@@ -22,14 +22,27 @@
     "url": "https://github.com/MatrixAI/js-virtualtar.git"
   },
   "type" :"module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    },
+    "./*": "./dist/*"
+  },
+  "imports": {
+    "#*": "./dist/*"
+  },
   "scripts": {
     "prepare": "tsc -p ./tsconfig.build.json",
     "build": "shx rm -rf ./dist && tsc -p ./tsconfig.build.json",
     "postversion": "npm install --package-lock-only --ignore-scripts --silent",
-    "ts-node": "ts-node",
-    "test": "jest",
+    "tsx": "tsx",
+    "test": "node ./scripts/test.mjs",
     "lint": "matrixai-lint --shell src tests",
     "lintfix": "matrixai-lint --fix --shell src tests",
     "docs": "shx rm -rf ./docs && typedoc --gitRevision master --tsconfig ./tsconfig.build.json --out ./docs src"
@@ -52,6 +65,7 @@
     "pkg": "^5.8.1",
     "shx": "^0.3.4",
     "tar": "^7.4.3",
+    "tsx": "^3.12.7",
     "ts-jest": "^28.0.5",
     "ts-node": "^10.9.1",
     "tsconfig-paths": "^3.9.0",
