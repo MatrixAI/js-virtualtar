@@ -1,4 +1,4 @@
-import type { FileStat } from '@/types';
+import type { FileStat } from '@/types.js';
 
 type VirtualFile = {
   type: 'file';
