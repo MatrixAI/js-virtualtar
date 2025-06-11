@@ -1,4 +1,4 @@
-import * as tar from '@/index.js';
+import * as tar from '#index.js';
 
 describe('index', () => {
   test('should have correct high-level exports', () => {

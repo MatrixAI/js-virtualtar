@@ -1,18 +1,18 @@
-import type { FileStat, MetadataKeywords } from '@/types.js';
+import type { FileStat, MetadataKeywords } from '#types.js';
 import type { VirtualFile, VirtualDirectory } from './types.js';
 import { test } from '@fast-check/jest';
+import * as testsUtils from './utils/index.js';
 import {
   Generator,
   Parser,
   VirtualTarGenerator,
   VirtualTarParser,
-} from '@/index.js';
-import * as tarUtils from '@/utils.js';
-import * as tarConstants from '@/constants.js';
-import * as utils from './utils/index.js';
+} from '#index.js';
+import * as utils from '#utils.js';
+import * as constants from '#constants.js';
 
 describe('integration testing', () => {
-  test.prop([utils.fileTreeArb()])(
+  test.prop([testsUtils.fileTreeArb()])(
     'should archive and unarchive a file tree using generator-parser pair',
     (fileTree) => {
       const generator = new Generator();
@@ -20,9 +20,9 @@ describe('integration testing', () => {
       const encoder = new TextEncoder();
 
       for (const entry of fileTree) {
-        if (entry.path.length > tarConstants.STANDARD_PATH_SIZE) {
+        if (entry.path.length > constants.STANDARD_PATH_SIZE) {
           // Push the extended header
-          const extendedData = tarUtils.encodeExtendedHeader({
+          const extendedData = utils.encodeExtendedHeader({
             path: entry.path,
           });
           blocks.push(generator.generateExtended(extendedData.byteLength));
@@ -31,19 +31,17 @@ describe('integration testing', () => {
           for (
             let offset = 0;
             offset < extendedData.byteLength;
-            offset += tarConstants.BLOCK_SIZE
+            offset += constants.BLOCK_SIZE
           ) {
             const chunk = extendedData.slice(
               offset,
-              offset + tarConstants.BLOCK_SIZE,
+              offset + constants.BLOCK_SIZE,
             );
             blocks.push(generator.generateData(chunk));
           }
         }
         const filePath =
-          entry.path.length <= tarConstants.STANDARD_PATH_SIZE
-            ? entry.path
-            : '';
+          entry.path.length <= constants.STANDARD_PATH_SIZE ? entry.path : '';
 
         if (entry.type === 'file') {
           blocks.push(generator.generateFile(filePath, entry.stat));
@@ -53,9 +51,9 @@ describe('integration testing', () => {
           for (
             let offset = 0;
             offset < data.byteLength;
-            offset += tarConstants.BLOCK_SIZE
+            offset += constants.BLOCK_SIZE
           ) {
-            const chunk = data.slice(offset, offset + tarConstants.BLOCK_SIZE);
+            const chunk = data.slice(offset, offset + constants.BLOCK_SIZE);
             blocks.push(generator.generateData(chunk));
           }
         } else {
@@ -94,7 +92,7 @@ describe('integration testing', () => {
               | Partial<Record<MetadataKeywords, string>>
               | undefined;
             if (extendedData != null) {
-              extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);
+              extendedMetadata = utils.decodeExtendedHeader(extendedData);
             }
 
             const fullPath = extendedMetadata?.path
@@ -150,7 +148,7 @@ describe('integration testing', () => {
 
           case 'data': {
             if (extendedData == null) {
-              workingData = tarUtils.concatUint8Arrays(workingData, token.data);
+              workingData = utils.concatUint8Arrays(workingData, token.data);
             } else {
               extendedData.set(token.data, dataOffset);
               dataOffset += token.data.byteLength;
@@ -185,7 +183,7 @@ describe('integration testing', () => {
     },
   );
 
-  test.prop([utils.fileTreeArb()])(
+  test.prop([testsUtils.fileTreeArb()])(
     'should archive and unarchive a file tree using virtualtar',
     async (fileTree) => {
       const generator = new VirtualTarGenerator();
@@ -231,8 +229,8 @@ describe('integration testing', () => {
 
       await parser.settled();
 
-      expect(utils.deepSort(entries)).toContainAllValues(
-        utils.deepSort(fileTree),
+      expect(testsUtils.deepSort(entries)).toContainAllValues(
+        testsUtils.deepSort(fileTree),
       );
     },
   );

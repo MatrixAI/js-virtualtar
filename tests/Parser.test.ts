@@ -1,20 +1,20 @@
 import type { VirtualFile, VirtualDirectory } from './types.js';
-import type { MetadataKeywords } from '@/types.js';
+import type { MetadataKeywords } from '#types.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import fc from 'fast-check';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import Parser from '@/Parser.js';
-import { ParserState } from '@/types.js';
-import * as tarErrors from '@/errors.js';
-import * as tarUtils from '@/utils.js';
-import * as tarConstants from '@/constants.js';
-import * as utils from './utils/index.js';
+import * as testsUtils from './utils/index.js';
+import Parser from '#Parser.js';
+import { ParserState } from '#types.js';
+import * as errors from '#errors.js';
+import * as utils from '#utils.js';
+import * as constants from '#constants.js';
 
 describe('parsing archive blocks', () => {
-  test.prop([utils.tarEntryArb()])(
+  test.prop([testsUtils.tarEntryArb()])(
     'should parse headers with correct state',
     ({ headers, data }) => {
       const { type, path, stat } = data;
@@ -22,7 +22,7 @@ describe('parsing archive blocks', () => {
       const token = parser.write(headers[0]);
 
       expect(token?.type).toEqual('header');
-      if (token?.type !== 'header') tarUtils.never('Token type');
+      if (token?.type !== 'header') utils.never('Token type');
 
       // @ts-ignore: accessing protected member for state analysis
       const state = parser.state;
@@ -30,7 +30,7 @@ describe('parsing archive blocks', () => {
       switch (type) {
         case 'file':
           // The file can have an extended header or a regular header
-          if (data.path.length > tarConstants.STANDARD_PATH_SIZE) {
+          if (data.path.length > constants.STANDARD_PATH_SIZE) {
             expect(token.fileType).toEqual('metadata');
             expect(state).toEqual(ParserState.DATA);
           } else {
@@ -45,7 +45,7 @@ describe('parsing archive blocks', () => {
           expect(token.fileType).toEqual('directory');
           break;
         default:
-          tarUtils.never('Invalid state');
+          utils.never('Invalid state');
       }
 
       expect(token.filePath).toEqual(path);
@@ -59,11 +59,11 @@ describe('parsing archive blocks', () => {
     (data) => {
       // Make sure a null block doesn't get tested. It is reserved for ending a
       // tar archive.
-      fc.pre(!tarUtils.isNullBlock(data));
+      fc.pre(!utils.isNullBlock(data));
 
       const parser = new Parser();
       expect(() => parser.write(data)).toThrowError(
-        tarErrors.ErrorVirtualTarParserInvalidHeader,
+        errors.ErrorVirtualTarParserInvalidHeader,
       );
     },
   );
@@ -73,27 +73,27 @@ describe('parsing archive blocks', () => {
     (data) => {
       // Make sure a null block doesn't get tested. It is reserved for ending a
       // tar archive.
-      fc.pre(data.length !== tarConstants.BLOCK_SIZE);
+      fc.pre(data.length !== constants.BLOCK_SIZE);
 
       const parser = new Parser();
       expect(() => parser.write(data)).toThrowError(
-        tarErrors.ErrorVirtualTarParserBlockSize,
+        errors.ErrorVirtualTarParserBlockSize,
       );
     },
   );
 
   test.prop(
-    [utils.tarEntryArb(), fc.uint8Array({ minLength: 8, maxLength: 8 })],
+    [testsUtils.tarEntryArb(), fc.uint8Array({ minLength: 8, maxLength: 8 })],
     {
       numRuns: 1,
     },
   )(
     'should fail to parse header with an invalid checksum',
     ({ headers }, checksum) => {
-      headers[0].set(checksum, tarConstants.HEADER_OFFSET.CHECKSUM);
+      headers[0].set(checksum, constants.HEADER_OFFSET.CHECKSUM);
       const parser = new Parser();
       expect(() => parser.write(headers[0])).toThrowError(
-        tarErrors.ErrorVirtualTarParserInvalidHeader,
+        errors.ErrorVirtualTarParserInvalidHeader,
       );
     },
   );
@@ -102,32 +102,32 @@ describe('parsing archive blocks', () => {
     test('should parse end of archive', () => {
       const parser = new Parser();
 
-      const token1 = parser.write(new Uint8Array(tarConstants.BLOCK_SIZE));
+      const token1 = parser.write(new Uint8Array(constants.BLOCK_SIZE));
       expect(token1).toBeUndefined();
       // @ts-ignore: accessing protected member for state analysis
       expect(parser.state).toEqual(ParserState.NULL);
 
-      const token2 = parser.write(new Uint8Array(tarConstants.BLOCK_SIZE));
+      const token2 = parser.write(new Uint8Array(constants.BLOCK_SIZE));
       expect(token2?.type).toEqual('end');
       // @ts-ignore: accessing protected member for state analysis
       expect(parser.state).toEqual(ParserState.ENDED);
     });
 
-    test.prop([utils.tarEntryArb()], { numRuns: 1 })(
+    test.prop([testsUtils.tarEntryArb()], { numRuns: 1 })(
       'should fail if end of archive is malformed',
       ({ headers }) => {
         const parser = new Parser();
 
-        const token1 = parser.write(new Uint8Array(tarConstants.BLOCK_SIZE));
+        const token1 = parser.write(new Uint8Array(constants.BLOCK_SIZE));
         expect(token1).toBeUndefined();
 
         expect(() => parser.write(headers[0])).toThrowError(
-          tarErrors.ErrorVirtualTarParserEndOfArchive,
+          errors.ErrorVirtualTarParserEndOfArchive,
         );
       },
     );
 
-    test.prop([utils.tarEntryArb()], { numRuns: 1 })(
+    test.prop([testsUtils.tarEntryArb()], { numRuns: 1 })(
       'should fail if data is written after parser ending',
       ({ headers }) => {
         const parser = new Parser();
@@ -135,7 +135,7 @@ describe('parsing archive blocks', () => {
         parser.state = ParserState.ENDED;
 
         expect(() => parser.write(headers[0])).toThrowError(
-          tarErrors.ErrorVirtualTarParserEndOfArchive,
+          errors.ErrorVirtualTarParserEndOfArchive,
         );
       },
     );
@@ -144,7 +144,7 @@ describe('parsing archive blocks', () => {
 
 describe('parsing extended metadata', () => {
   test.prop(
-    [utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })],
+    [testsUtils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })],
     {
       numRuns: 1,
     },
@@ -157,7 +157,7 @@ describe('parsing extended metadata', () => {
   });
 
   test.prop(
-    [utils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })],
+    [testsUtils.tarEntryArb({ minFilePathSize: 256, maxFilePathSize: 512 })],
     {
       numRuns: 1,
     },
@@ -171,7 +171,7 @@ describe('parsing extended metadata', () => {
     const size = paxHeader.fileSize;
 
     // Concatenate all the data into a single array
-    const numDataBlocks = Math.ceil(size / tarConstants.BLOCK_SIZE);
+    const numDataBlocks = Math.ceil(size / constants.BLOCK_SIZE);
     const dataBlock = new Uint8Array(size);
     let offset = 0;
     for (const header of headers.slice(1, 1 + numDataBlocks)) {
@@ -184,7 +184,7 @@ describe('parsing extended metadata', () => {
     }
 
     // Parse the data into a record
-    const parsedHeader = tarUtils.decodeExtendedHeader(dataBlock);
+    const parsedHeader = utils.decodeExtendedHeader(dataBlock);
     expect(parsedHeader.path).toEqual(data.path);
 
     // The actual path in the header is ignored if the PAX header contains
@@ -202,7 +202,7 @@ describe('testing against tar', () => {
     }
   });
 
-  test.prop([utils.fileTreeArb()], { numRuns: 100 })(
+  test.prop([testsUtils.fileTreeArb()], { numRuns: 100 })(
     'should match output of tar',
     async (fileTree) => {
       // Create a temp directory to use for node-tar
@@ -266,7 +266,7 @@ describe('testing against tar', () => {
                 | Partial<Record<MetadataKeywords, string>>
                 | undefined;
               if (extendedData != null) {
-                extendedMetadata = tarUtils.decodeExtendedHeader(extendedData);
+                extendedMetadata = utils.decodeExtendedHeader(extendedData);
               }
 
               const fullPath = extendedMetadata?.path
@@ -307,10 +307,7 @@ describe('testing against tar', () => {
 
             case 'data': {
               if (extendedData == null) {
-                workingData = tarUtils.concatUint8Arrays(
-                  workingData,
-                  token.data,
-                );
+                workingData = utils.concatUint8Arrays(workingData, token.data);
               } else {
                 extendedData.set(token.data, dataOffset);
                 dataOffset += token.data.byteLength;

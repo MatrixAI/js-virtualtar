@@ -36,7 +36,6 @@ async function main() {
     shell: platform === 'win32' ? true : false,
   });
 }
-/* eslint-enable no-console */
 
 if (import.meta.url.startsWith('file:')) {
   const modulePath = url.fileURLToPath(import.meta.url);
