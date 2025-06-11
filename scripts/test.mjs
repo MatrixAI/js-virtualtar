@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
@@ -12,7 +13,8 @@ const projectPath = path.dirname(
 const platform = os.platform();
 
 /* eslint-disable no-console */
-async function main() {
+async function main(argv = process.argv) {
+  argv = argv.slice(2);
   const tscArgs = [`-p`, path.join(projectPath, 'tsconfig.build.json')];
   console.error('Running tsc:');
   console.error(['tsc', ...tscArgs].join(' '));
@@ -22,7 +24,7 @@ async function main() {
     encoding: 'utf-8',
     shell: platform === 'win32' ? true : false,
   });
-  const jestArgs = [];
+  const jestArgs = [...argv];
   console.error('Running jest:');
   console.error(['jest', ...jestArgs].join(' '));
   childProcess.execFileSync('jest', jestArgs, {
@@ -36,6 +38,7 @@ async function main() {
     shell: platform === 'win32' ? true : false,
   });
 }
+/* eslint-enable no-console */
 
 if (import.meta.url.startsWith('file:')) {
   const modulePath = url.fileURLToPath(import.meta.url);
