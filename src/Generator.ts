@@ -1,8 +1,8 @@
-import type { FileType, FileStat } from './types';
-import { GeneratorState } from './types';
-import * as constants from './constants';
-import * as errors from './errors';
-import * as utils from './utils';
+import type { FileType, FileStat } from './types.js';
+import { GeneratorState } from './types.js';
+import * as constants from './constants.js';
+import * as errors from './errors.js';
+import * as utils from './utils.js';
 
 /**
  * The Generator can be used to generate blocks for a tar archive. The generator

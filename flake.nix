@@ -14,7 +14,7 @@
         shell = { ci ? false }:
           with pkgs;
           pkgs.mkShell {
-            nativeBuildInputs = [ nodejs_20 shellcheck gitAndTools.gh ];
+            nativeBuildInputs = [ nodejs_20 gitAndTools.gh ];
             PKG_IGNORE_TAG = 1;
             shellHook = ''
               echo "Entering $(npm pkg get name)"

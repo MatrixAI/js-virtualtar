@@ -130,3 +130,6 @@ dist
 # editor
 .vscode/
 .idea/
+
+# prettier for local editor-based linting
+.prettierrc

@@ -3,11 +3,11 @@ import path from 'path';
 import os from 'os';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import { VirtualTarGenerator } from '@';
-import * as tarConstants from '@/constants';
+import * as constants from '#constants.js';
+import { VirtualTarGenerator } from '#index.js';
 
 describe('generator', () => {
-  let tempDir;
+  let tempDir: string;
 
   beforeEach(async () => {
     tempDir = await fs.promises.mkdtemp(
@@ -159,7 +159,7 @@ describe('generator', () => {
   test('should write file containing exactly 512 bytes of data', async () => {
     // Set the file names and their data
     const fileName = 'file.txt';
-    const fileData = new Uint8Array(tarConstants.BLOCK_SIZE).fill(1);
+    const fileData = new Uint8Array(constants.BLOCK_SIZE).fill(1);
 
     const vtar = new VirtualTarGenerator();
 

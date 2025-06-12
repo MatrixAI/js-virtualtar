@@ -1,2 +1,2 @@
-export * from './fastcheck';
-export * from './utils';
+export * from './fastcheck.js';
+export * from './utils.js';

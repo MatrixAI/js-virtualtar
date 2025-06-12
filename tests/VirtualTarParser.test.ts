@@ -3,10 +3,10 @@ import path from 'path';
 import os from 'os';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import { VirtualTarParser } from '@';
+import { VirtualTarParser } from '#index.js';
 
 describe('parser', () => {
-  let tempDir;
+  let tempDir: string;
 
   beforeEach(async () => {
     tempDir = await fs.promises.mkdtemp(

@@ -1,8 +1,8 @@
-import type { TokenHeader, TokenData, TokenEnd } from './types';
-import { ParserState } from './types';
-import * as constants from './constants';
-import * as errors from './errors';
-import * as utils from './utils';
+import type { TokenHeader, TokenData, TokenEnd } from './types.js';
+import { ParserState } from './types.js';
+import * as constants from './constants.js';
+import * as errors from './errors.js';
+import * as utils from './utils.js';
 
 /**
  * The Parser is used to parse blocks from a tar archive. Each written chunk can

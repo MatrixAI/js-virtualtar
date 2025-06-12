@@ -4,11 +4,11 @@ import type {
   MetadataKeywords,
   TokenData,
   TokenHeader,
-} from './types';
-import Parser from './Parser';
-import * as constants from './constants';
-import * as errors from './errors';
-import * as utils from './utils';
+} from './types.js';
+import Parser from './Parser.js';
+import * as constants from './constants.js';
+import * as errors from './errors.js';
+import * as utils from './utils.js';
 
 /**
  * VirtualTar is a library used to create tar files using a virtual file system

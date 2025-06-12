@@ -4,22 +4,22 @@ import path from 'path';
 import fc from 'fast-check';
 import { test } from '@fast-check/jest';
 import * as tar from 'tar';
-import Generator from '@/Generator';
-import { EntryType, GeneratorState } from '@/types';
-import * as tarConstants from '@/constants';
-import * as tarErrors from '@/errors';
-import * as tarUtils from '@/utils';
-import * as utils from './utils';
+import * as testsUtils from './utils/index.js';
+import Generator from '#Generator.js';
+import { EntryType, GeneratorState } from '#types.js';
+import * as constants from '#constants.js';
+import * as errors from '#errors.js';
+import * as utils from '#utils.js';
 
 describe('generating archive', () => {
-  test.prop([utils.fileArb()])(
+  test.prop([testsUtils.fileArb()])(
     'should generate a valid file header',
     (file) => {
       // Generate and split the header
       const generator = new Generator();
       const header = generator.generateFile(file.path, file.stat);
       const { name, type, mode, uid, gid, size, mtime, format, version } =
-        utils.splitHeaderData(header);
+        testsUtils.splitHeaderData(header);
 
       // @ts-ignore: accessing protected member for state analysis
       const state = generator.state;
@@ -33,20 +33,20 @@ describe('generating archive', () => {
       expect(uid).toEqual(file.stat.uid);
       expect(gid).toEqual(file.stat.gid);
       expect(size).toEqual(file.stat.size);
-      expect(mtime).toEqual(tarUtils.dateToTarTime(file.stat.mtime!));
+      expect(mtime).toEqual(utils.dateToTarTime(file.stat.mtime!));
       expect(format).toEqual('ustar');
       expect(version).toEqual('00');
     },
   );
 
-  test.prop([utils.dirArb()])(
+  test.prop([testsUtils.dirArb()])(
     'should generate a valid directory header',
     (file) => {
       // Generate and split the header
       const generator = new Generator();
       const header = generator.generateDirectory(file.path, file.stat);
       const { name, type, mode, uid, gid, size, mtime, format, version } =
-        utils.splitHeaderData(header);
+        testsUtils.splitHeaderData(header);
 
       // @ts-ignore: accessing protected member for state analysis
       const state = generator.state;
@@ -59,7 +59,7 @@ describe('generating archive', () => {
       expect(uid).toEqual(file.stat.uid);
       expect(gid).toEqual(file.stat.gid);
       expect(size).toEqual(0);
-      expect(mtime).toEqual(tarUtils.dateToTarTime(file.stat.mtime!));
+      expect(mtime).toEqual(utils.dateToTarTime(file.stat.mtime!));
       expect(format).toEqual('ustar');
       expect(version).toEqual('00');
     },
@@ -77,18 +77,18 @@ describe('generating archive', () => {
 });
 
 describe('generator state robustness', () => {
-  test.prop([utils.fileContentArb(0)], { numRuns: 1 })(
+  test.prop([testsUtils.fileContentArb(0)], { numRuns: 1 })(
     'should fail writing data when header is expected',
     (data) => {
       const generator = new Generator();
       const encoder = new TextEncoder();
       expect(() => generator.generateData(encoder.encode(data))).toThrowError(
-        tarErrors.ErrorVirtualTarGeneratorInvalidState,
+        errors.ErrorVirtualTarGeneratorInvalidState,
       );
     },
   );
 
-  test.prop([utils.fileArb(), utils.fileArb()], { numRuns: 1 })(
+  test.prop([testsUtils.fileArb(), testsUtils.fileArb()], { numRuns: 1 })(
     'should fail writing new header if previous file header has not sent any data',
     (file1, file2) => {
       fc.pre(file1.stat.size !== 0);
@@ -102,13 +102,19 @@ describe('generator state robustness', () => {
 
       // Writing second file
       expect(() => generator.generateFile(file2.path, file2.stat)).toThrowError(
-        tarErrors.ErrorVirtualTarGeneratorInvalidState,
+        errors.ErrorVirtualTarGeneratorInvalidState,
       );
     },
   );
 
   test.prop(
-    [fc.oneof(utils.fileContentArb(), utils.fileArb(), utils.dirArb())],
+    [
+      fc.oneof(
+        testsUtils.fileContentArb(),
+        testsUtils.fileArb(),
+        testsUtils.dirArb(),
+      ),
+    ],
     { numRuns: 10 },
   )('should fail writing data when attempting to end archive', (data) => {
     const generator = new Generator();
@@ -127,13 +133,17 @@ describe('generator state robustness', () => {
     };
 
     generator.generateEnd();
-    expect(writeData).toThrowError(
-      tarErrors.ErrorVirtualTarGeneratorInvalidState,
-    );
+    expect(writeData).toThrowError(errors.ErrorVirtualTarGeneratorInvalidState);
   });
 
   test.prop(
-    [fc.oneof(utils.fileContentArb(), utils.fileArb(), utils.dirArb())],
+    [
+      fc.oneof(
+        testsUtils.fileContentArb(),
+        testsUtils.fileArb(),
+        testsUtils.dirArb(),
+      ),
+    ],
     { numRuns: 10 },
   )('should fail writing data after ending archive', (data) => {
     const generator = new Generator();
@@ -153,16 +163,14 @@ describe('generator state robustness', () => {
 
     generator.generateEnd();
     generator.generateEnd();
-    expect(writeData).toThrowError(
-      tarErrors.ErrorVirtualTarGeneratorInvalidState,
-    );
+    expect(writeData).toThrowError(errors.ErrorVirtualTarGeneratorInvalidState);
   });
 });
 
 describe('testing against tar', () => {
   const encoder = new TextEncoder();
 
-  test.prop([utils.fileTreeArb()])(
+  test.prop([testsUtils.fileTreeArb()])(
     'should match output of tar',
     async (fileTree) => {
       // Create a temp directory to use for node-tar
@@ -176,9 +184,9 @@ describe('testing against tar', () => {
         const blocks: Array<Uint8Array> = [];
 
         for (const entry of fileTree) {
-          if (entry.path.length > tarConstants.STANDARD_PATH_SIZE) {
+          if (entry.path.length > constants.STANDARD_PATH_SIZE) {
             // Push the extended header
-            const extendedData = tarUtils.encodeExtendedHeader({
+            const extendedData = utils.encodeExtendedHeader({
               path: entry.path,
             });
             blocks.push(generator.generateExtended(extendedData.byteLength));
@@ -187,19 +195,17 @@ describe('testing against tar', () => {
             for (
               let offset = 0;
               offset < extendedData.byteLength;
-              offset += tarConstants.BLOCK_SIZE
+              offset += constants.BLOCK_SIZE
             ) {
               const chunk = extendedData.slice(
                 offset,
-                offset + tarConstants.BLOCK_SIZE,
+                offset + constants.BLOCK_SIZE,
               );
               blocks.push(generator.generateData(chunk));
             }
           }
           const filePath =
-            entry.path.length <= tarConstants.STANDARD_PATH_SIZE
-              ? entry.path
-              : '';
+            entry.path.length <= constants.STANDARD_PATH_SIZE ? entry.path : '';
 
           if (entry.type === 'file') {
             blocks.push(generator.generateFile(filePath, entry.stat));
@@ -209,12 +215,9 @@ describe('testing against tar', () => {
             for (
               let offset = 0;
               offset < data.byteLength;
-              offset += tarConstants.BLOCK_SIZE
+              offset += constants.BLOCK_SIZE
             ) {
-              const chunk = data.slice(
-                offset,
-                offset + tarConstants.BLOCK_SIZE,
-              );
+              const chunk = data.slice(offset, offset + constants.BLOCK_SIZE);
               blocks.push(generator.generateData(chunk));
             }
           } else {

@@ -1,8 +1,8 @@
-import type { VirtualFile, VirtualDirectory } from '../types';
-import type { FileStat } from '@/types';
+import type { VirtualFile, VirtualDirectory } from '../types.js';
+import type { FileStat } from '#types.js';
 import fc from 'fast-check';
-import * as tarConstants from '@/constants';
-import * as tarUtils from '@/utils';
+import * as constants from '#constants.js';
+import * as utils from '#utils.js';
 
 /**
  * Creates an arbitrary to produce valid (and common) unix file modes. Note that
@@ -231,56 +231,56 @@ const tarEntryArb = ({
 
   const headers = data.map((data) => {
     const extendedHeaders: Array<Uint8Array> = [];
-    const header = new Uint8Array(tarConstants.BLOCK_SIZE);
+    const header = new Uint8Array(constants.BLOCK_SIZE);
     const dataHeaders: Array<Uint8Array> = [];
 
     // Write the file path
-    if (data.path.length > tarConstants.STANDARD_PATH_SIZE) {
-      const extendedData = tarUtils.encodeExtendedHeader({ path: data.path });
+    if (data.path.length > constants.STANDARD_PATH_SIZE) {
+      const extendedData = utils.encodeExtendedHeader({ path: data.path });
 
       // Create the extended header array
-      const extendedHeader = new Uint8Array(tarConstants.BLOCK_SIZE);
-      tarUtils.writeFileType(extendedHeader, 'extended');
-      tarUtils.writeFileSize(extendedHeader, extendedData.byteLength);
-      tarUtils.writeUstarMagic(extendedHeader);
-      tarUtils.writeChecksum(
+      const extendedHeader = new Uint8Array(constants.BLOCK_SIZE);
+      utils.writeFileType(extendedHeader, 'extended');
+      utils.writeFileSize(extendedHeader, extendedData.byteLength);
+      utils.writeUstarMagic(extendedHeader);
+      utils.writeChecksum(
         extendedHeader,
-        tarUtils.calculateChecksum(extendedHeader),
+        utils.calculateChecksum(extendedHeader),
       );
       extendedHeaders.push(extendedHeader);
 
       // Push the data array in 512-byte chunks
       let offset = 0;
       while (offset < extendedData.length) {
-        const block = new Uint8Array(tarConstants.BLOCK_SIZE);
-        block.set(extendedData.slice(offset, offset + tarConstants.BLOCK_SIZE));
+        const block = new Uint8Array(constants.BLOCK_SIZE);
+        block.set(extendedData.slice(offset, offset + constants.BLOCK_SIZE));
         extendedHeaders.push(block);
-        offset += tarConstants.BLOCK_SIZE;
+        offset += constants.BLOCK_SIZE;
       }
     } else {
-      tarUtils.writeFilePath(header, data.path);
+      utils.writeFilePath(header, data.path);
     }
 
     // Write the regular header info
-    tarUtils.writeFileType(header, data.type);
-    tarUtils.writeFileSize(header, data.stat.size);
-    tarUtils.writeFileMode(header, data.stat.mode);
-    tarUtils.writeFileMtime(header, data.stat.mtime);
-    tarUtils.writeOwnerUid(header, data.stat.uid);
-    tarUtils.writeOwnerGid(header, data.stat.gid);
-    tarUtils.writeUstarMagic(header);
-    tarUtils.writeChecksum(header, tarUtils.calculateChecksum(header));
+    utils.writeFileType(header, data.type);
+    utils.writeFileSize(header, data.stat.size);
+    utils.writeFileMode(header, data.stat.mode);
+    utils.writeFileMtime(header, data.stat.mtime);
+    utils.writeOwnerUid(header, data.stat.uid);
+    utils.writeOwnerGid(header, data.stat.gid);
+    utils.writeUstarMagic(header);
+    utils.writeChecksum(header, utils.calculateChecksum(header));
 
     // If it is a file, then append the data to the data array
     if (data.type === 'file') {
       let content = data.content;
       const encoder = new TextEncoder();
       while (content.length > 0) {
-        const block = new Uint8Array(tarConstants.BLOCK_SIZE);
-        const chunk = content.substring(0, tarConstants.BLOCK_SIZE);
+        const block = new Uint8Array(constants.BLOCK_SIZE);
+        const chunk = content.substring(0, constants.BLOCK_SIZE);
         block.set(encoder.encode(chunk));
         dataHeaders.push(block);
-        content = content.substring(tarConstants.BLOCK_SIZE);
+        content = content.substring(constants.BLOCK_SIZE);
       }
     }
 
